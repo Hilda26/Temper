@@ -12,6 +12,18 @@ Prior deployments superseded (kept for history): `0xa6f69E12E178E5Da717bFCa1257c
 All frontend/observer config now points at the new address. If you redeploy again, update the
 same three places listed in STUDIONET_DEPLOYMENT.md's runbook.
 
+## Frontend Deployment
+
+**Live**: https://temper-alpha.vercel.app — Vercel project `temper` under scope
+`auras-projects-2f862c53`, deployed from `frontend/` via `vercel --prod`. All 6 env vars from
+`frontend/.env.local` are set in the Vercel dashboard (Production environment): GenLayer chain
+ID/RPC/explorer, contract address, and Supabase URL/anon key. Confirmed live and connected —
+landing page shows "LIVE ON STUDIONET" with real (currently zero) system counts.
+
+To redeploy after code changes: `cd frontend && vercel --prod`. To update env vars after a
+contract redeploy: `vercel env rm <VAR> production` then `vercel env add <VAR> production`, or
+just edit them in the Vercel dashboard, then redeploy.
+
 ## Network
 
 - Chain: GenLayer StudioNet
