@@ -1,8 +1,34 @@
 "use client";
 
 import Link from "next/link";
-import { getSystemCounts } from "@/lib/genlayer";
+import { getSystemCounts, listCommitments, getActiveIncidents } from "@/lib/genlayer";
 import { useContractData } from "@/lib/useContractData";
+
+const ACTIVE_COMMITMENT_STATUSES = new Set([3, 4, 5]); // ACTIVE, WATCH, INCIDENT_OPEN
+
+interface HomeStats {
+  activeCommitments: number;
+  policies: number;
+  openIncidents: number;
+  protocol_treasury: number;
+}
+
+async function loadStats(): Promise<HomeStats> {
+  const [counts, commitments, activeIncidentIds] = await Promise.all([
+    getSystemCounts(),
+    listCommitments(),
+    getActiveIncidents(),
+  ]);
+  const activeCommitments = commitments.filter((c) =>
+    ACTIVE_COMMITMENT_STATUSES.has(Number(c.status)),
+  ).length;
+  return {
+    activeCommitments,
+    policies: Number(counts.policies ?? 0),
+    openIncidents: activeIncidentIds.length,
+    protocol_treasury: Number(counts.protocol_treasury ?? 0),
+  };
+}
 
 const FLOW_STEPS = [
   {
@@ -59,12 +85,12 @@ const ENTRY_POINTS = [
 ];
 
 export default function Home() {
-  const { data: counts, loading, error } = useContractData(getSystemCounts, [], 15000);
+  const { data: counts, loading, error } = useContractData(loadStats, [], 15000);
 
   const stats = [
-    { label: "Active Commitments", value: counts?.commitments ?? "--" },
+    { label: "Active Commitments", value: counts?.activeCommitments ?? "--" },
     { label: "Total Policies", value: counts?.policies ?? "--" },
-    { label: "Open Incidents", value: counts?.incidents ?? "--" },
+    { label: "Open Incidents", value: counts?.openIncidents ?? "--" },
     { label: "Capital Treasury", value: counts?.protocol_treasury ?? "--" },
   ];
 

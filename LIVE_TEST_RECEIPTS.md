@@ -10,9 +10,37 @@ Deployed 4 times during this build while fixing bugs discovered in live testing.
 | 2 (kwargs fix) | — | `0xa6f69E12E178E5Da717bFCa1257c798326ebD329` | ACCEPTED | Fixed positional args + `_now()` |
 | 3 (partial emit_transfer fix) | `0x2393898e510ac0c17f03e477eac87874a84265b66b5b792972fa40e61186035a` | `0xa66A63621d284aD2B0D159EA5a06b4a402b123A0` | ACCEPTED, 5/5 AGREE | Removed double `Address()` wrap only — still broken (wrong function name) |
 | 4 (correct API, still wrong wrap) | `0x9e2ac2b5c6303b412c51aed1fab6da09274c0813907fc832695de9ac5cdcb811` | `0x3882B71bfFe8dbC05D8F09D890FA8A3BC40696D9` | ACCEPTED, 5/5 AGREE | Fixed `gl.get_contract_at`, still wrapped stored Address in `Address()` — still broken |
-| 5 (final, fully fixed) | `0x175f02914987334bc4b0dfa1c799756c7d6c37d57d879267143ac2b4ff40dad4` | **`0xE514E721165Dba2871fe5ADd5d2447578aCc3579`** | ACCEPTED, 5/5 AGREE | **Current production address** |
+| 5 (final, fully fixed) | `0x175f02914987334bc4b0dfa1c799756c7d6c37d57d879267143ac2b4ff40dad4` | `0xE514E721165Dba2871fe5ADd5d2447578aCc3579` | ACCEPTED, 5/5 AGREE | Superseded — see below |
+| 6 (user's manual redeploy) | — | **`0xEe05F0c3bcE19533c81dABbbc86D761cc0DF327D`** | — | **Current production address** — same code as #5, redeployed manually |
 
-## Funded Scenario — Full Flow (PASS)
+## Seed Data (PASS)
+
+Executed via `scripts/seed-live.mjs` against `0xEe05F0c3bcE19533c81dABbbc86D761cc0DF327D` to give
+the freshly-redeployed (empty) contract one real, presentable commitment + settled incident to
+show instead of an all-zero landing page.
+
+| Step | TX Hash | Result |
+|------|---------|--------|
+| create_commitment ("Checkout API Uptime", commitment #1) | `0xd62c6fed1175060a54af620da4f1658df17fce557966c9e99e6d29c789829dce` | SUCCESS |
+| deposit_operator_bond (1000) | `0xdd165ae914e5274b56e61586b348a38798cc9520df5827104671d24cded45110` | SUCCESS |
+| activate_commitment | `0x9471494d9fef6125640e1b6a6bbd6961ea86b9ab6e3c622be6cabb93fdcec84f` | SUCCESS |
+| deposit_coverage_capital (5000) | `0x8a293bfcb4162493a85346f9df14e3dd02bfddad2ce2bd612cc0211f341fb9a3` | SUCCESS |
+| purchase_coverage (limit=1000, duration=7d, policy #1) | `0x67b59dee5f10058d2ce5487be9a09247c452b0f059d2ebc48e9295043f9a3dc9` | SUCCESS |
+| request_observation #1 | `0x21c1feee78da171e5466b5b417db67dbd38d5b05cc1cc3d7f955af30cae8ea9b` | SUCCESS |
+| request_observation #2 (threshold crossed) | `0x70267ab938c3c9d695485d8409835397a0e6f1d9a074ad99fbb41aef981d6b13` | SUCCESS — auto-opened incident #1, severity=MATERIAL, slash_bps=2500 |
+| finalize_provisional_verdict | `0xd5c3d8ac40bb64dbfe6807db0a731fbb627b21d144b8d001e13cfd658a8279e3` | SUCCESS |
+| finalize_incident | `0x73287edb50b866372a402368901f89b9aa45b0e6e50eab05c78c0b791d16f511` | SUCCESS — slash_amount=250 (2500bps × 1000 bond), policy claimable=990 (tier-3 × 1000 limit − 10 deductible) |
+| claim_payout (policy #1) | `0x356ab8eccf0755586e3fadbca1ab752db92923c27db9f17755c9206272877d26` | SUCCESS — claimed=990 |
+
+**Bug found while verifying this on the live site**: the landing page's "Open Incidents" stat was
+bound to `get_system_counts().incidents`, which is a lifetime total (`next_incident_id - 1`), not
+a currently-open count — so a fully-settled incident still showed as "1 open." Same issue existed
+for "Active Commitments" (bound to lifetime `commitments` count). Fixed in `frontend/src/app/page.tsx`
+by computing real counts from `listCommitments()` (filtered to ACTIVE/WATCH/INCIDENT_OPEN) and
+`getActiveIncidents()` instead. Redeployed to production and confirmed correct (0 open incidents
+shown for the now-settled seed incident, 1 active commitment still shown correctly).
+
+## Funded Scenario — Full Flow (historical, prior address, PASS)
 
 Executed via `scripts/test-full-flow.mjs` against `0xE514E721165Dba2871fe5ADd5d2447578aCc3579`.
 Random operator account created per run, no pre-funding required (StudioNet is gasless; value
