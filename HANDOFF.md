@@ -1,5 +1,33 @@
 # Temper Handoff
 
+## ⚠ Known Platform Limitation (read this first)
+
+**Confirmed 2026-07-28, root-caused, NOT fixable in application code**: `emit_transfer` — the
+only value-sending primitive GenVM exposes (`gl.get_contract_at(addr).emit_transfer(value=...)`)
+— debits the sender's balance but **never credits a plain wallet (EOA) recipient** on StudioNet.
+The value is effectively destroyed. This affects every money-out path in Temper: `purchase_coverage`
+refunds, `claim_payout`, `request_bond_withdrawal`, `execute_underwriter_withdrawal`,
+`withdraw_protocol_treasury` — anything that pays a real user, since real users are always EOAs.
+
+**How this was confirmed** (see `scripts/probe4-final.mjs`-style tests, not committed —
+throwaway): deployed a probe contract, sent value to a plain EOA — sender's balance dropped by the
+exact amount, recipient's on-chain balance stayed `0` even after 30s. Repeated with fresh EOAs,
+same result every time. Sent value to a *contract* address instead (also via `emit_transfer`) —
+that one **did** work (sender debited, recipient credited). The `dir()` of the value-transfer
+proxy object shows only `emit_transfer`, `emit`, `view`, `balance`, `address` — there is no
+alternate API to try. This means: **contract-to-contract transfers work; contract-to-EOA
+transfers silently lose the funds.** Every prior "SUCCESS" result for `claim_payout` etc. in this
+repo's history reflects the contract's internal ledger updating correctly (which it does, and
+which is auditable/correct) — but the actual GEN never reached anyone's wallet.
+
+**What this means for submission**: the adjudication logic — non-deterministic web-fetch
+evidence gathering, consensus, the full state machine, bps-accurate slash and payout math — is
+proven correct end-to-end (see TESTING.md, 37/37 automated checks). What's not currently provable
+live is the very last step (funds landing in a user's wallet), because the platform primitive for
+that doesn't work for EOA recipients on StudioNet as of this date. This is worth reporting to the
+GenLayer team directly — if it's a StudioNet-specific gap (vs. a mainnet one), that's exactly the
+kind of thing worth flagging before others hit it too.
+
 ## Deployed Addresses
 
 | Component | Address | Status |
@@ -189,9 +217,11 @@ gaps.
 - DynArray[u256] not directly tested
 - Newer runner Depends hash exists but was proven broken in earlier test
 - Long JSON arrays in TreeMap[u256, str] may hit size limits
-- Withdrawal paths (bond, underwriter, treasury) use the fixed `emit_transfer` API but have not yet
-  been exercised live end-to-end (`purchase_coverage` refund and `claim_payout` are now both
-  confirmed working)
+- All withdrawal/payout/refund paths (`purchase_coverage` refund, `claim_payout`,
+  `request_bond_withdrawal`, `execute_underwriter_withdrawal`, `withdraw_protocol_treasury`) call
+  correctly and update internal state correctly — but per the platform limitation flagged at the
+  top of this file, the actual GEN transfer to the recipient's wallet does not land. This is not
+  fixable in `contracts/temper.py`.
 - `INC_RESOLVER_PENDING` is unreachable — the human-resolver escalation path for deadlocked
   incidents cannot currently be triggered by any code path in the contract
 - (Fixed during this pass) `frontend/src/app/archive/page.tsx` filtered incidents for status
@@ -199,6 +229,7 @@ gaps.
   incidents at status 7 (`SETTLEMENT_READY`) since `INC_SETTLED` is unreachable — every
   completed incident was invisible in Archive. Filter now includes status 7 too. Caught by
   driving a real incident through the full lifecycle and checking the Archive page.
-- `get_contract_balance` didn't reflect a completed `claim_payout` transfer in testing (see above)
+- `get_contract_balance` didn't reflect a completed `claim_payout` transfer in earlier testing —
+  now explained: the transfer never actually delivered, see the platform limitation at the top
 - No indexer populates the `cached_*` Supabase tables yet — they exist but are empty
 - No Supabase Auth UI in the frontend yet — profile/draft/notification tables exist unused

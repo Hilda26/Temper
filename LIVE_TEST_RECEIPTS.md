@@ -1,5 +1,10 @@
 # Live Test Receipts
 
+**Read HANDOFF.md's "Known Platform Limitation" section first.** Every "claim_payout SUCCESS" /
+"claimed=X" line below is accurate for the contract call and internal ledger — but the actual GEN
+transfer to the recipient's wallet does not land, confirmed via direct on-chain balance checks.
+Not a Temper bug — `emit_transfer` to plain wallet addresses silently loses value on StudioNet.
+
 ## Contract Deployment
 
 Deployed 4 times during this build while fixing bugs discovered in live testing. Final address is authoritative.

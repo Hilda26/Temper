@@ -36,8 +36,13 @@ Real deployed contract with actual value.
 9. Challenge path runs → `challenge_incident` → `request_readjudication` — **PASS** (see Intensive E2E Run below — only the UPHOLD ruling branch was exercised; OVERTURN/REDUCE_SEVERITY require a target that becomes healthy mid-incident, which needs a real toggleable endpoint)
 10. Slash is recorded → `finalize_incident` — **PASS**
 11. Payout is claimable → policy status = PAYOUT_READY — **PASS**
-12. Holder claims real value → `claim_payout` — **PASS**
-13. Balances reconcile — **PASS** (slash_amount and claimable payout both verified against manual bps math)
+12. Holder claims real value → `claim_payout` — **PASS at the contract-call level** (transaction
+    succeeds, `policy_claimed`/`policy_status` update correctly) — **but see the platform
+    limitation in HANDOFF.md**: the actual GEN transfer to the holder's wallet does not land.
+    Confirmed via direct on-chain balance checks, not a Temper bug — `emit_transfer` to plain
+    wallet (EOA) addresses silently loses the value on StudioNet.
+13. Balances reconcile — **PASS for internal ledger** (slash_amount and claimable payout both
+    verified against manual bps math) — **not provable for actual wallet balances**, per above.
 
 ## Intensive E2E Run (2026-07-28)
 

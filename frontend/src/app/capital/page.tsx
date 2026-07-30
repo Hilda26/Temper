@@ -41,7 +41,10 @@ export default function CapitalPage() {
     setMessage(null);
     try {
       const tx = await fn();
-      setMessage({ kind: "ok", text: `Confirmed: ${tx.slice(0, 14)}...` });
+      const caveat = key.startsWith("withdraw-")
+        ? " Note: on StudioNet, GEN sent to a wallet address via emit_transfer does not currently settle -- the withdrawal request is recorded on-chain but the underlying platform limitation means it will not yet arrive in your wallet."
+        : "";
+      setMessage({ kind: "ok", text: `Confirmed: ${tx.slice(0, 14)}...${caveat}` });
       window.location.reload();
     } catch (e) {
       setMessage({ kind: "err", text: extractErrorMessage(e) });

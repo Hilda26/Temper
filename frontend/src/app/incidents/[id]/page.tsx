@@ -464,7 +464,9 @@ function ClaimSection({
     setMessage(null);
     try {
       const tx = await claimPayout({ provider }, policyId);
-      setMessage(`Claimed: ${tx.slice(0, 14)}...`);
+      setMessage(
+        `Claimed: ${tx.slice(0, 14)}... Note: the payout is recorded on-chain, but GEN sent via emit_transfer does not currently settle to wallet addresses on StudioNet -- see HANDOFF.md.`,
+      );
       window.location.reload();
     } catch (e) {
       setMessage(extractErrorMessage(e));
@@ -486,6 +488,10 @@ function ClaimSection({
   return (
     <div className="space-y-2">
       <p className="text-sm text-stone-500 dark:text-stone-400">Claimable payouts for your wallet:</p>
+      <p className="border border-amber-600/30 bg-amber-600/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+        Known StudioNet limitation: claims record correctly on-chain, but the underlying GEN
+        transfer does not currently settle to wallet addresses. See HANDOFF.md.
+      </p>
       {rows.map((p) => (
         <div key={p.id as number} className="flex items-center justify-between border border-[var(--color-border-default)] px-3 py-2">
           <span className="font-mono text-xs text-stone-600 dark:text-stone-400">

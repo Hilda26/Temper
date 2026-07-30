@@ -325,7 +325,10 @@ function PurchaseCoverageForm({
         Number(duration),
         BigInt(maxPremium),
       );
-      setMessage({ kind: "ok", text: `Policy purchased: ${tx.slice(0, 14)}...` });
+      setMessage({
+        kind: "ok",
+        text: `Policy purchased: ${tx.slice(0, 14)}... Note: any overpayment refund is queued via emit_transfer, which does not currently settle to wallet addresses on StudioNet -- see HANDOFF.md.`,
+      });
       window.location.reload();
     } catch (e2) {
       setMessage({ kind: "err", text: extractErrorMessage(e2) });
