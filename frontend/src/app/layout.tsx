@@ -27,6 +27,8 @@ const NAV_ITEMS = [
   { href: "/coverage", label: "COVERAGE" },
   { href: "/capital", label: "CAPITAL" },
   { href: "/archive", label: "ARCHIVE" },
+  { href: "/operator", label: "OPERATOR" },
+  { href: "/observer", label: "OBSERVER" },
 ];
 
 export default function RootLayout({

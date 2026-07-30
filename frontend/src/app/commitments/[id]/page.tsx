@@ -306,7 +306,7 @@ function PurchaseCoverageForm({
   minDuration: number;
   maxDuration: number;
 }) {
-  const { address, provider, connect } = useWallet();
+  const { address, provider, connect, connecting, error: walletError } = useWallet();
   const [limit, setLimit] = useState(String(minLimit || 100));
   const [duration, setDuration] = useState(String(minDuration || 86400));
   const [maxPremium, setMaxPremium] = useState("100");
@@ -339,13 +339,19 @@ function PurchaseCoverageForm({
 
   if (!address) {
     return (
-      <div className="flex justify-end">
+      <div className="flex flex-col items-end gap-2">
         <button
           onClick={connect}
-          className="border border-amber-600 px-6 py-2 font-mono text-[0.6875rem] uppercase tracking-[0.15em] text-amber-700 transition-colors hover:bg-amber-600 hover:text-white dark:text-amber-500 dark:hover:bg-amber-600 dark:hover:text-white"
+          disabled={connecting}
+          className="border border-amber-600 px-6 py-2 font-mono text-[0.6875rem] uppercase tracking-[0.15em] text-amber-700 transition-colors hover:bg-amber-600 hover:text-white disabled:opacity-50 dark:text-amber-500 dark:hover:bg-amber-600 dark:hover:text-white"
         >
-          Connect Wallet to Purchase Coverage
+          {connecting ? "Connecting..." : "Connect Wallet to Purchase Coverage"}
         </button>
+        {walletError && (
+          <div className="border border-red-600/40 bg-red-600/5 px-4 py-2 text-sm text-red-700 dark:text-red-400">
+            {walletError}
+          </div>
+        )}
       </div>
     );
   }

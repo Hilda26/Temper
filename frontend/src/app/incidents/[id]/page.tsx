@@ -69,7 +69,7 @@ interface IncidentDetail {
 export default function IncidentRoomPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
-  const { address, provider, connect } = useWallet();
+  const { address, provider, connect, connecting, error: walletError } = useWallet();
   const [pending, setPending] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [counterEvidence, setCounterEvidence] = useState("");
@@ -317,12 +317,20 @@ export default function IncidentRoomPage() {
         </div>
 
         {!address ? (
-          <button
-            onClick={connect}
-            className="border border-amber-600 px-6 py-2 font-mono text-[0.6875rem] uppercase tracking-[0.15em] text-amber-700 transition-colors hover:bg-amber-600 hover:text-white dark:text-amber-500"
-          >
-            Connect Wallet to Act on This Incident
-          </button>
+          <div>
+            <button
+              onClick={connect}
+              disabled={connecting}
+              className="border border-amber-600 px-6 py-2 font-mono text-[0.6875rem] uppercase tracking-[0.15em] text-amber-700 transition-colors hover:bg-amber-600 hover:text-white disabled:opacity-50 dark:text-amber-500"
+            >
+              {connecting ? "Connecting..." : "Connect Wallet to Act on This Incident"}
+            </button>
+            {walletError && (
+              <div className="mt-4 border border-red-600/40 bg-red-600/5 px-4 py-2 text-sm text-red-700 dark:text-red-400">
+                {walletError}
+              </div>
+            )}
+          </div>
         ) : (
           <div className="space-y-4">
             {(currentStep === INC_SUSPECTED || currentStep === INC_EVIDENCE_GATHERING) && (
