@@ -5,6 +5,11 @@ import { GENLAYER_CONFIG } from './config';
 
 export type { GenLayerClient } from 'genlayer-js/types';
 
+/** Minimal EIP-1193 provider shape (e.g. window.ethereum). Not exported by genlayer-js or viem. */
+export interface EthereumProvider {
+  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+}
+
 /**
  * Creates a GenLayer client configured for StudioNet.
  *
@@ -19,7 +24,7 @@ export function createGenLayerClient(options?: {
     chain: studionet,
     endpoint: GENLAYER_CONFIG.rpcUrl,
     ...(options?.account ? { account: options.account as Address } : {}),
-    ...(options?.provider ? { provider: options.provider as any } : {}),
+    ...(options?.provider ? { provider: options.provider as EthereumProvider } : {}),
   });
 }
 

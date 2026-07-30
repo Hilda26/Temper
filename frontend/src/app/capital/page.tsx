@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import ValueDisplay from "@/components/ValueDisplay";
 import StatusBadge from "@/components/StatusBadge";
+import TransactionLink from "@/components/TransactionLink";
 import {
   listCommitments,
   getCapitalState,
@@ -34,7 +35,9 @@ export default function CapitalPage() {
   const rows = vaults ?? [];
   const { address, provider, connect } = useWallet();
   const [pending, setPending] = useState<string | null>(null);
-  const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string; txHash?: string } | null>(
+    null,
+  );
 
   async function runAction(key: string, fn: () => Promise<string>) {
     setPending(key);
@@ -44,8 +47,8 @@ export default function CapitalPage() {
       const caveat = key.startsWith("withdraw-")
         ? " Note: on StudioNet, GEN sent to a wallet address via emit_transfer does not currently settle -- the withdrawal request is recorded on-chain but the underlying platform limitation means it will not yet arrive in your wallet."
         : "";
-      setMessage({ kind: "ok", text: `Confirmed: ${tx.slice(0, 14)}...${caveat}` });
-      window.location.reload();
+      setMessage({ kind: "ok", text: `Confirmed.${caveat}`, txHash: tx });
+      setTimeout(() => window.location.reload(), 2500);
     } catch (e) {
       setMessage({ kind: "err", text: extractErrorMessage(e) });
     } finally {
@@ -207,13 +210,14 @@ export default function CapitalPage() {
 
           {message && (
             <div
-              className={`mt-6 border px-4 py-2 font-mono text-xs ${
+              className={`mt-6 flex items-center gap-2 border px-4 py-2 font-mono text-xs ${
                 message.kind === "ok"
                   ? "border-emerald-600/40 text-emerald-700 dark:text-emerald-400"
                   : "border-red-600/40 text-red-700 dark:text-red-400"
               }`}
             >
-              {message.text}
+              <span>{message.text}</span>
+              {message.txHash && <TransactionLink hash={message.txHash} />}
             </div>
           )}
         </>

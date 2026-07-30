@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import Link from "next/link";
 import StatusBadge from "@/components/StatusBadge";
 import ValueDisplay from "@/components/ValueDisplay";
+import TransactionLink from "@/components/TransactionLink";
 import { useWallet } from "@/lib/wallet/WalletProvider";
 import { useContractData } from "@/lib/useContractData";
 import {
@@ -24,7 +25,9 @@ const C_CAPITALISING = 2;
 
 function useActionState() {
   const [pending, setPending] = useState<string | null>(null);
-  const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string; txHash?: string } | null>(
+    null,
+  );
   return { pending, setPending, message, setMessage };
 }
 
@@ -54,8 +57,8 @@ export default function OperatorPage() {
     action.setMessage(null);
     try {
       const tx = await fn();
-      action.setMessage({ kind: "ok", text: `Confirmed: ${tx.slice(0, 14)}...` });
-      window.location.reload();
+      action.setMessage({ kind: "ok", text: "Confirmed", txHash: tx });
+      setTimeout(() => window.location.reload(), 2500);
     } catch (e) {
       action.setMessage({ kind: "err", text: extractErrorMessage(e) });
     } finally {
@@ -205,13 +208,14 @@ export default function OperatorPage() {
 
       {action.message && (
         <div
-          className={`mb-6 border px-4 py-2 font-mono text-xs ${
+          className={`mb-6 flex items-center gap-2 border px-4 py-2 font-mono text-xs ${
             action.message.kind === "ok"
               ? "border-emerald-600/40 text-emerald-700 dark:text-emerald-400"
               : "border-red-600/40 text-red-700 dark:text-red-400"
           }`}
         >
-          {action.message.text}
+          <span>{action.message.text}</span>
+          {action.message.txHash && <TransactionLink hash={action.message.txHash} />}
         </div>
       )}
 

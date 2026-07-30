@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import StatusBadge from "@/components/StatusBadge";
 import ValueDisplay from "@/components/ValueDisplay";
+import TransactionLink from "@/components/TransactionLink";
 import {
   getIncident,
   getIncidentEvidenceSummary,
@@ -71,7 +72,9 @@ export default function IncidentRoomPage() {
   const id = params.id;
   const { address, provider, connect, connecting, error: walletError } = useWallet();
   const [pending, setPending] = useState<string | null>(null);
-  const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string; txHash?: string } | null>(
+    null,
+  );
   const [counterEvidence, setCounterEvidence] = useState("");
 
   const fetcher = useCallback(async (): Promise<IncidentDetail> => {
@@ -93,8 +96,8 @@ export default function IncidentRoomPage() {
     setMessage(null);
     try {
       const tx = await fn();
-      setMessage({ kind: "ok", text: `Confirmed: ${tx.slice(0, 14)}...` });
-      window.location.reload();
+      setMessage({ kind: "ok", text: "Confirmed", txHash: tx });
+      setTimeout(() => window.location.reload(), 2500);
     } catch (e) {
       setMessage({ kind: "err", text: extractErrorMessage(e) });
     } finally {
@@ -434,11 +437,12 @@ export default function IncidentRoomPage() {
 
         {message && (
           <div
-            className={`mt-4 font-mono text-xs ${
+            className={`mt-4 flex items-center gap-2 font-mono text-xs ${
               message.kind === "ok" ? "text-emerald-700 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
             }`}
           >
-            {message.text}
+            <span>{message.text}</span>
+            {message.txHash && <TransactionLink hash={message.txHash} />}
           </div>
         )}
       </section>
@@ -465,19 +469,20 @@ function ClaimSection({
 
   const { data: claimable, loading } = useContractData(fetcher, [address, incidentId], 10000);
   const [pending, setPending] = useState<number | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ text: string; txHash?: string } | null>(null);
 
   async function handleClaim(policyId: number) {
     setPending(policyId);
     setMessage(null);
     try {
       const tx = await claimPayout({ provider }, policyId);
-      setMessage(
-        `Claimed: ${tx.slice(0, 14)}... Note: the payout is recorded on-chain, but GEN sent via emit_transfer does not currently settle to wallet addresses on StudioNet -- see HANDOFF.md.`,
-      );
-      window.location.reload();
+      setMessage({
+        text: "Claimed. Note: the payout is recorded on-chain, but GEN sent via emit_transfer does not currently settle to wallet addresses on StudioNet -- see HANDOFF.md.",
+        txHash: tx,
+      });
+      setTimeout(() => window.location.reload(), 2500);
     } catch (e) {
-      setMessage(extractErrorMessage(e));
+      setMessage({ text: extractErrorMessage(e) });
     } finally {
       setPending(null);
     }
@@ -514,7 +519,12 @@ function ClaimSection({
           </button>
         </div>
       ))}
-      {message && <p className="font-mono text-xs text-stone-500 dark:text-stone-400">{message}</p>}
+      {message && (
+        <p className="flex items-center gap-2 font-mono text-xs text-stone-500 dark:text-stone-400">
+          <span>{message.text}</span>
+          {message.txHash && <TransactionLink hash={message.txHash} />}
+        </p>
+      )}
     </div>
   );
 }

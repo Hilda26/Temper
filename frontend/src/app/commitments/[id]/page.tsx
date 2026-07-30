@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import StatusBadge from "@/components/StatusBadge";
 import AddressDisplay from "@/components/AddressDisplay";
 import ValueDisplay from "@/components/ValueDisplay";
+import TransactionLink from "@/components/TransactionLink";
 import {
   getCommitment,
   getCommitmentPolicy,
@@ -311,7 +312,9 @@ function PurchaseCoverageForm({
   const [duration, setDuration] = useState(String(minDuration || 86400));
   const [maxPremium, setMaxPremium] = useState("100");
   const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string; txHash?: string } | null>(
+    null,
+  );
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -327,9 +330,10 @@ function PurchaseCoverageForm({
       );
       setMessage({
         kind: "ok",
-        text: `Policy purchased: ${tx.slice(0, 14)}... Note: any overpayment refund is queued via emit_transfer, which does not currently settle to wallet addresses on StudioNet -- see HANDOFF.md.`,
+        text: "Policy purchased. Note: any overpayment refund is queued via emit_transfer, which does not currently settle to wallet addresses on StudioNet -- see HANDOFF.md.",
+        txHash: tx,
       });
-      window.location.reload();
+      setTimeout(() => window.location.reload(), 2500);
     } catch (e2) {
       setMessage({ kind: "err", text: extractErrorMessage(e2) });
     } finally {
@@ -406,11 +410,12 @@ function PurchaseCoverageForm({
       </div>
       {message && (
         <div
-          className={`mt-4 font-mono text-xs ${
+          className={`mt-4 flex items-center gap-2 font-mono text-xs ${
             message.kind === "ok" ? "text-emerald-700 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
           }`}
         >
-          {message.text}
+          <span>{message.text}</span>
+          {message.txHash && <TransactionLink hash={message.txHash} />}
         </div>
       )}
       <div className="mt-4 flex justify-end">

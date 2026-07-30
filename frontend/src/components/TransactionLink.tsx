@@ -1,9 +1,9 @@
+import { txUrl } from "@/lib/genlayer";
+
 function truncateHash(hash: string): string {
   if (hash.length <= 16) return hash;
   return `${hash.slice(0, 10)}...${hash.slice(-6)}`;
 }
-
-const EXPLORER_BASE = "https://studio.genlayer.com/tx";
 
 export default function TransactionLink({
   hash,
@@ -14,7 +14,7 @@ export default function TransactionLink({
 }) {
   return (
     <a
-      href={`${EXPLORER_BASE}/${hash}`}
+      href={txUrl(hash)}
       target="_blank"
       rel="noopener noreferrer"
       className="inline-flex items-center gap-1 font-mono text-xs text-stone-600 hover:text-amber-700 dark:text-stone-400 dark:hover:text-amber-500 transition-colors"
