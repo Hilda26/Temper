@@ -275,6 +275,26 @@ function BondForm({
   );
 }
 
+const COMMITMENT_REGISTRY_RETRIES = 12;
+const COMMITMENT_REGISTRY_INTERVAL_MS = 2000;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForNewOperatorCommitmentId(operator: string, existingIds: Set<number>) {
+  for (let attempt = 0; attempt < COMMITMENT_REGISTRY_RETRIES; attempt += 1) {
+    const ids = await getOperatorPositions(operator);
+    const newest = ids
+      .map(Number)
+      .filter((id) => !existingIds.has(id))
+      .sort((a, b) => b - a)[0];
+    if (newest) return newest;
+    await sleep(COMMITMENT_REGISTRY_INTERVAL_MS);
+  }
+  throw new Error("Commitment was created, but the new ID is not visible yet. Refresh and finish bonding from My Commitments.");
+}
+
 function CreateCommitmentForm({
   provider,
   address,
@@ -292,41 +312,64 @@ function CreateCommitmentForm({
   const [backupUrl, setBackupUrl] = useState("");
   const [minBond, setMinBond] = useState("100");
   const [submitting, setSubmitting] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
+  const [txHashes, setTxHashes] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const minBondNumber = Number(minBond);
+    if (!Number.isInteger(minBondNumber) || minBondNumber <= 0) {
+      setError("Minimum bond must be a whole number greater than zero.");
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
+    setProgress("Creating commitment...");
+    setTxHashes([]);
+
     try {
-      await createCommitment(
-        { provider, account: address },
-        {
-          serviceName,
-          description,
-          template: 0,
-          targetUrl,
-          backupUrl: backupUrl || targetUrl,
-          observationInterval: 60,
-          gracePeriod: 120,
-          failureThreshold: 3,
-          minBond: Number(minBond),
-          slashLadder: '{"1":0,"2":500,"3":2500,"4":10000}',
-          payoutTiers: '{"0":0,"1":1000,"2":3500,"3":10000}',
-          maxPolicyLimit: 1000000,
-          minPolicyLimit: 100,
-          maxPolicyDuration: 2592000,
-          minPolicyDuration: 86400,
-          basePremiumBps: 500,
-          deductibleBps: 100,
-          waitingPeriod: 0,
-          challengeWindow: 300,
-          maxCumulativeSlashBps: 10000,
-        },
-      );
-      onSuccess();
+      const beforeIds = new Set((await getOperatorPositions(address)).map(Number));
+      const writeOptions = { provider, account: address };
+      const createTx = await createCommitment(writeOptions, {
+        serviceName,
+        description,
+        template: 0,
+        targetUrl,
+        backupUrl: backupUrl || targetUrl,
+        observationInterval: 60,
+        gracePeriod: 120,
+        failureThreshold: 3,
+        minBond: minBondNumber,
+        slashLadder: '{"1":0,"2":500,"3":2500,"4":10000}',
+        payoutTiers: '{"0":0,"1":1000,"2":3500,"3":10000}',
+        maxPolicyLimit: 1000000,
+        minPolicyLimit: 100,
+        maxPolicyDuration: 2592000,
+        minPolicyDuration: 86400,
+        basePremiumBps: 500,
+        deductibleBps: 100,
+        waitingPeriod: 0,
+        challengeWindow: 300,
+        maxCumulativeSlashBps: 10000,
+      });
+      setTxHashes([createTx]);
+      setProgress("Finding new commitment...");
+
+      const commitmentId = await waitForNewOperatorCommitmentId(address, beforeIds);
+      setProgress("Depositing operator bond...");
+      const bondTx = await depositOperatorBond(writeOptions, commitmentId, BigInt(minBondNumber));
+      setTxHashes([createTx, bondTx]);
+
+      setProgress("Activating commitment...");
+      const activateTx = await activateCommitment(writeOptions, commitmentId);
+      setTxHashes([createTx, bondTx, activateTx]);
+      setProgress("Commitment active");
+      setTimeout(onSuccess, 1200);
     } catch (e2) {
       setError(extractErrorMessage(e2));
+      setProgress(null);
       setSubmitting(false);
     }
   }
@@ -345,9 +388,10 @@ function CreateCommitmentForm({
         </span>
         <input
           required
+          disabled={submitting}
           value={serviceName}
           onChange={(e) => setServiceName(e.target.value)}
-          className="mt-1 w-full border border-[var(--color-border-default)] bg-transparent px-3 py-1.5 text-sm text-stone-900 dark:text-stone-100"
+          className="mt-1 w-full border border-[var(--color-border-default)] bg-transparent px-3 py-1.5 text-sm text-stone-900 disabled:opacity-60 dark:text-stone-100"
         />
       </label>
       <label className="block">
@@ -356,9 +400,10 @@ function CreateCommitmentForm({
         </span>
         <textarea
           required
+          disabled={submitting}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          className="mt-1 w-full border border-[var(--color-border-default)] bg-transparent px-3 py-1.5 text-sm text-stone-900 dark:text-stone-100"
+          className="mt-1 w-full border border-[var(--color-border-default)] bg-transparent px-3 py-1.5 text-sm text-stone-900 disabled:opacity-60 dark:text-stone-100"
         />
       </label>
       <label className="block">
@@ -367,11 +412,12 @@ function CreateCommitmentForm({
         </span>
         <input
           required
+          disabled={submitting}
           type="url"
           value={targetUrl}
           onChange={(e) => setTargetUrl(e.target.value)}
           placeholder="https://example.com/health"
-          className="mt-1 w-full border border-[var(--color-border-default)] bg-transparent px-3 py-1.5 text-sm text-stone-900 dark:text-stone-100"
+          className="mt-1 w-full border border-[var(--color-border-default)] bg-transparent px-3 py-1.5 text-sm text-stone-900 disabled:opacity-60 dark:text-stone-100"
         />
       </label>
       <label className="block">
@@ -379,10 +425,11 @@ function CreateCommitmentForm({
           Backup URL (optional)
         </span>
         <input
+          disabled={submitting}
           type="url"
           value={backupUrl}
           onChange={(e) => setBackupUrl(e.target.value)}
-          className="mt-1 w-full border border-[var(--color-border-default)] bg-transparent px-3 py-1.5 text-sm text-stone-900 dark:text-stone-100"
+          className="mt-1 w-full border border-[var(--color-border-default)] bg-transparent px-3 py-1.5 text-sm text-stone-900 disabled:opacity-60 dark:text-stone-100"
         />
       </label>
       <label className="block">
@@ -391,14 +438,28 @@ function CreateCommitmentForm({
         </span>
         <input
           required
+          disabled={submitting}
           type="number"
           min="1"
+          step="1"
           value={minBond}
           onChange={(e) => setMinBond(e.target.value)}
-          className="mt-1 w-full border border-[var(--color-border-default)] bg-transparent px-3 py-1.5 text-sm text-stone-900 dark:text-stone-100"
+          className="mt-1 w-full border border-[var(--color-border-default)] bg-transparent px-3 py-1.5 text-sm text-stone-900 disabled:opacity-60 dark:text-stone-100"
         />
       </label>
 
+      {progress && (
+        <div className="border border-amber-600/30 bg-amber-600/5 px-3 py-2 font-mono text-[0.625rem] uppercase tracking-wider text-amber-700 dark:text-amber-400">
+          {progress}
+        </div>
+      )}
+      {txHashes.length > 0 && (
+        <div className="flex flex-wrap gap-2 font-mono text-[0.625rem] uppercase tracking-wider text-stone-500 dark:text-stone-400">
+          {txHashes.map((hash, index) => (
+            <TransactionLink key={hash} hash={hash} label={`Tx ${index + 1}`} />
+          ))}
+        </div>
+      )}
       {error && <div className="text-sm text-red-600 dark:text-red-400">{error}</div>}
 
       <div className="flex gap-3">
@@ -407,12 +468,13 @@ function CreateCommitmentForm({
           disabled={submitting}
           className="border border-amber-600 px-6 py-2 font-mono text-[0.6875rem] uppercase tracking-[0.15em] text-amber-700 transition-colors hover:bg-amber-600 hover:text-white disabled:opacity-50 dark:text-amber-500"
         >
-          {submitting ? "Submitting..." : "Create"}
+          {submitting ? "Working..." : "Create & Activate"}
         </button>
         <button
           type="button"
+          disabled={submitting}
           onClick={onClose}
-          className="border border-[var(--color-border-default)] px-6 py-2 font-mono text-[0.6875rem] uppercase tracking-[0.15em] text-stone-600 dark:text-stone-400"
+          className="border border-[var(--color-border-default)] px-6 py-2 font-mono text-[0.6875rem] uppercase tracking-[0.15em] text-stone-600 disabled:opacity-50 dark:text-stone-400"
         >
           Cancel
         </button>

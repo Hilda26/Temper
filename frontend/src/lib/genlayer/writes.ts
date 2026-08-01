@@ -2,6 +2,7 @@ import type { CalldataEncodable } from 'genlayer-js/types';
 import { createGenLayerClient } from './client';
 import { TEMPER_CONTRACT_ADDRESS } from './contract';
 import { ContractWriteError, ClientConfigError } from './errors';
+import { waitForTransaction } from './transactions';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -62,13 +63,14 @@ async function callWrite(
   });
 
   try {
-    const txHash = await client.writeContract({
+    const txHash = (await client.writeContract({
       address: TEMPER_CONTRACT_ADDRESS,
       functionName,
       args: callArgs?.args ?? [],
       value: callArgs?.value ?? BigInt(0),
-    });
-    return txHash as string;
+    })) as string;
+    await waitForTransaction(txHash);
+    return txHash;
   } catch (error) {
     throw new ContractWriteError(functionName, error);
   }

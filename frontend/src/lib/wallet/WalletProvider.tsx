@@ -24,6 +24,7 @@ declare global {
 }
 
 const STUDIONET_CHAIN_ID_HEX = `0x${GENLAYER_CONFIG.chainId.toString(16)}`;
+const WALLET_CONNECTED_KEY = "temper:wallet-connected";
 
 interface WalletState {
   address: `0x${string}` | null;
@@ -88,7 +89,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     try {
       const accounts = (await eth.request({ method: "eth_requestAccounts" })) as string[];
       await ensureStudioNetChain(eth);
-      setAddress((accounts[0] as `0x${string}`) ?? null);
+      const connectedAccounts = (await eth.request({ method: "eth_accounts" })) as string[];
+      const nextAddress = (connectedAccounts[0] ?? accounts[0]) as `0x${string}` | undefined;
+      setAddress(nextAddress ?? null);
+      if (nextAddress) {
+        window.localStorage.setItem(WALLET_CONNECTED_KEY, "true");
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -99,18 +105,73 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const disconnect = useCallback(() => {
     setAddress(null);
     setError(null);
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(WALLET_CONNECTED_KEY);
+    }
   }, []);
+
+  useEffect(() => {
+    const eth = getEth();
+    if (!eth || typeof window === "undefined") return;
+    const provider = eth;
+    if (window.localStorage.getItem(WALLET_CONNECTED_KEY) !== "true") return;
+
+    let cancelled = false;
+    async function restoreConnection() {
+      try {
+        const accounts = (await provider.request({ method: "eth_accounts" })) as string[];
+        if (cancelled) return;
+        if (accounts[0]) {
+          await ensureStudioNetChain(provider);
+          if (!cancelled) {
+            setAddress(accounts[0] as `0x${string}`);
+            setError(null);
+          }
+        } else {
+          window.localStorage.removeItem(WALLET_CONNECTED_KEY);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      }
+    }
+
+    restoreConnection();
+    return () => {
+      cancelled = true;
+    };
+  }, [getEth]);
 
   useEffect(() => {
     const eth = getEth();
     if (!eth?.on) return;
     const handleAccountsChanged = (...args: unknown[]) => {
       const accounts = args[0] as string[];
-      setAddress((accounts?.[0] as `0x${string}`) ?? null);
+      const nextAddress = accounts?.[0] as `0x${string}` | undefined;
+      setAddress(nextAddress ?? null);
+      if (nextAddress) {
+        window.localStorage.setItem(WALLET_CONNECTED_KEY, "true");
+        setError(null);
+      } else {
+        window.localStorage.removeItem(WALLET_CONNECTED_KEY);
+      }
+    };
+    const handleChainChanged = (...args: unknown[]) => {
+      const chainId = String(args[0] ?? "").toLowerCase();
+      if (chainId === STUDIONET_CHAIN_ID_HEX.toLowerCase()) {
+        setError(null);
+      } else if (address) {
+        setError("Wallet is on the wrong network. Reconnect to switch back to StudioNet.");
+      }
     };
     eth.on("accountsChanged", handleAccountsChanged);
-    return () => eth.removeListener?.("accountsChanged", handleAccountsChanged);
-  }, [getEth]);
+    eth.on("chainChanged", handleChainChanged);
+    return () => {
+      eth.removeListener?.("accountsChanged", handleAccountsChanged);
+      eth.removeListener?.("chainChanged", handleChainChanged);
+    };
+  }, [address, getEth]);
 
   const value = useMemo(
     () => ({ address, connecting, error, provider: getEth(), connect, disconnect }),
