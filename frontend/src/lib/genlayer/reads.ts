@@ -1,4 +1,4 @@
-import type { CalldataEncodable } from 'genlayer-js/types';
+import { CalldataAddress, type CalldataEncodable } from 'genlayer-js/types';
 import { getReadClient } from './client';
 import { TEMPER_CONTRACT_ADDRESS } from './contract';
 import { ContractReadError } from './errors';
@@ -12,6 +12,19 @@ const VIEW_RETRY_DELAY_MS = 750;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+function toCalldataAddress(address: string): CalldataAddress {
+  const normalized = address.trim();
+  if (!/^0x[0-9a-fA-F]{40}$/.test(normalized)) {
+    throw new Error(`Invalid address: ${address}`);
+  }
+
+  const bytes = new Uint8Array(20);
+  const hex = normalized.slice(2);
+  for (let i = 0; i < bytes.length; i += 1) {
+    bytes[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return new CalldataAddress(bytes);
 }
 
 /**
@@ -125,19 +138,19 @@ export async function getClaimablePayout(policyId: bigint): Promise<bigint> {
 
 /** List of commitment IDs where the given operator has positions. */
 export async function getOperatorPositions(operator: string): Promise<number[]> {
-  const result = await callView('get_operator_positions', [operator]);
+  const result = await callView('get_operator_positions', [toCalldataAddress(operator)]);
   return parseResult<number[]>(result);
 }
 
 /** Underwriter position details for a specific commitment and underwriter. */
 export async function getUnderwriterPosition(commitmentId: bigint, underwriter: string) {
-  const result = await callView('get_underwriter_position', [Number(commitmentId), underwriter]);
+  const result = await callView('get_underwriter_position', [Number(commitmentId), toCalldataAddress(underwriter)]);
   return parseResult<Record<string, unknown>>(result);
 }
 
 /** List of policy IDs held by a given address. */
 export async function getHolderPolicies(holder: string): Promise<number[]> {
-  const result = await callView('get_holder_policies', [holder]);
+  const result = await callView('get_holder_policies', [toCalldataAddress(holder)]);
   return parseResult<number[]>(result);
 }
 
