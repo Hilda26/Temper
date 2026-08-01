@@ -7,6 +7,13 @@ import { ContractReadError } from './errors';
 // Helpers
 // ---------------------------------------------------------------------------
 
+const VIEW_RETRY_COUNT = 2;
+const VIEW_RETRY_DELAY_MS = 750;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * Internal helper that calls a view method on the Temper contract and returns
  * the decoded result. All public read functions delegate to this.
@@ -17,18 +24,26 @@ async function callView(
   kwargs?: Record<string, CalldataEncodable>,
 ): Promise<CalldataEncodable> {
   const client = getReadClient();
-  try {
-    return await client.readContract({
-      address: TEMPER_CONTRACT_ADDRESS,
-      functionName,
-      ...(args ? { args } : {}),
-      ...(kwargs ? { kwargs } : {}),
-    });
-  } catch (error) {
-    throw new ContractReadError(functionName, error);
-  }
-}
+  let lastError: unknown;
 
+  for (let attempt = 0; attempt <= VIEW_RETRY_COUNT; attempt += 1) {
+    try {
+      return await client.readContract({
+        address: TEMPER_CONTRACT_ADDRESS,
+        functionName,
+        ...(args ? { args } : {}),
+        ...(kwargs ? { kwargs } : {}),
+      });
+    } catch (error) {
+      lastError = error;
+      if (attempt < VIEW_RETRY_COUNT) {
+        await sleep(VIEW_RETRY_DELAY_MS * (attempt + 1));
+      }
+    }
+  }
+
+  throw new ContractReadError(functionName, lastError);
+}
 /**
  * Parse a JSON string result from a view method, or return the value directly
  * if it is already an object.
@@ -155,13 +170,37 @@ export async function getContractBalance(): Promise<bigint> {
 // system counts first and then read each entity by ID in parallel.
 // ---------------------------------------------------------------------------
 
+async function settleEntityList<T extends Record<string, unknown>>(
+  ids: number[],
+  loader: (id: number) => Promise<T>,
+  entityName: string,
+): Promise<T[]> {
+  const settled = await Promise.allSettled(ids.map((id) => loader(id)));
+  const fulfilled: T[] = [];
+  let firstError: unknown;
+
+  for (const result of settled) {
+    if (result.status === 'fulfilled') {
+      if (Object.keys(result.value).length > 0) fulfilled.push(result.value);
+    } else {
+      firstError ??= result.reason;
+    }
+  }
+
+  if (fulfilled.length === 0 && firstError) {
+    throw new ContractReadError(entityName, firstError);
+  }
+
+  return fulfilled;
+}
+
 /** All commitments, IDs 1..commitments count, newest first. */
 export async function listCommitments(): Promise<Record<string, unknown>[]> {
   const counts = await getSystemCounts();
   const total = counts.commitments ?? 0;
   if (total === 0) return [];
   const ids = Array.from({ length: total }, (_, i) => total - i);
-  return Promise.all(ids.map((id) => getCommitment(BigInt(id))));
+  return settleEntityList(ids, (id) => getCommitment(BigInt(id)), 'list_commitments');
 }
 
 /** All incidents, IDs 1..incidents count, newest first. */
@@ -170,7 +209,7 @@ export async function listIncidents(): Promise<Record<string, unknown>[]> {
   const total = counts.incidents ?? 0;
   if (total === 0) return [];
   const ids = Array.from({ length: total }, (_, i) => total - i);
-  return Promise.all(ids.map((id) => getIncident(BigInt(id))));
+  return settleEntityList(ids, (id) => getIncident(BigInt(id)), 'list_incidents');
 }
 
 /** All policies, IDs 1..policies count, newest first. */
@@ -179,5 +218,5 @@ export async function listPolicies(): Promise<Record<string, unknown>[]> {
   const total = counts.policies ?? 0;
   if (total === 0) return [];
   const ids = Array.from({ length: total }, (_, i) => total - i);
-  return Promise.all(ids.map((id) => getPolicy(BigInt(id))));
+  return settleEntityList(ids, (id) => getPolicy(BigInt(id)), 'list_policies');
 }

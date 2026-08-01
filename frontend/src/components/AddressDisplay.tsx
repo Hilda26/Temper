@@ -28,6 +28,7 @@ export default function AddressDisplay({
 
   return (
     <button
+      type="button"
       onClick={handleCopy}
       className="inline-flex items-center gap-1.5 font-mono text-xs text-stone-700 hover:text-stone-900 dark:text-stone-300 dark:hover:text-stone-100 transition-colors"
       title={address}

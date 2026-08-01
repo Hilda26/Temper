@@ -17,6 +17,7 @@ export default function TransactionLink({
       href={txUrl(hash)}
       target="_blank"
       rel="noopener noreferrer"
+      title={`View transaction ${hash}`}
       className="inline-flex items-center gap-1 font-mono text-xs text-stone-600 hover:text-amber-700 dark:text-stone-400 dark:hover:text-amber-500 transition-colors"
     >
       <span>{label || truncateHash(hash)}</span>

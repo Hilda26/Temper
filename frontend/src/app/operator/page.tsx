@@ -37,7 +37,11 @@ export default function OperatorPage() {
   const fetcher = useCallback(async () => {
     if (!address) return [];
     const ids = await getOperatorPositions(address);
-    return Promise.all(ids.map((id) => getCommitment(BigInt(id))));
+    const settled = await Promise.allSettled(ids.map((id) => getCommitment(BigInt(id))));
+    return settled
+      .filter((result): result is PromiseFulfilledResult<Record<string, unknown>> => result.status === "fulfilled")
+      .map((result) => result.value)
+      .filter((commitment) => Object.keys(commitment).length > 0);
   }, [address]);
 
   const { data: commitments, loading, error } = useContractData(fetcher, [address], 15000);

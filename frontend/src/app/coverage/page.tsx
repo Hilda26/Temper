@@ -18,14 +18,27 @@ interface CoverageOffer {
   policy: Record<string, unknown>;
 }
 
+async function readOrEmpty<T extends Record<string, unknown>>(reader: () => Promise<T>): Promise<T> {
+  try {
+    return await reader();
+  } catch {
+    return {} as T;
+  }
+}
+
 async function loadOffers(): Promise<CoverageOffer[]> {
   const commitments = await listCommitments();
   const active = commitments.filter((c) => Number(c.status) === 3 || Number(c.status) === 4);
-  const [capitalStates, policies] = await Promise.all([
-    Promise.all(active.map((c) => getCapitalState(BigInt(c.id as number)))),
-    Promise.all(active.map((c) => getCommitmentPolicy(BigInt(c.id as number)))),
-  ]);
-  return active.map((commitment, i) => ({ commitment, capital: capitalStates[i], policy: policies[i] }));
+  return Promise.all(
+    active.map(async (commitment) => {
+      const cid = BigInt(commitment.id as number);
+      const [capital, policy] = await Promise.all([
+        readOrEmpty(() => getCapitalState(cid)),
+        readOrEmpty(() => getCommitmentPolicy(cid)),
+      ]);
+      return { commitment, capital, policy };
+    }),
+  );
 }
 
 export default function CoveragePage() {

@@ -10,8 +10,8 @@ interface ContractDataState<T> {
 
 /**
  * Fetches data from the GenLayer contract on mount and on an optional poll
- * interval. Returns loading/error state alongside the data so pages can
- * render a live-connection indicator instead of hardcoded placeholders.
+ * interval. Poll refreshes keep the last good data if a transient RPC/read
+ * error occurs, so a healthy page does not blank itself on one bad tick.
  */
 export function useContractData<T>(
   fetcher: () => Promise<T>,
@@ -27,17 +27,19 @@ export function useContractData<T>(
   useEffect(() => {
     let cancelled = false;
 
+
     async function load() {
       try {
         const data = await fetcher();
         if (!cancelled) setState({ data, loading: false, error: null });
       } catch (err) {
         if (!cancelled) {
-          setState({
-            data: null,
+          const message = err instanceof Error ? err.message : 'Failed to load contract data';
+          setState((prev) => ({
+            data: prev.data,
             loading: false,
-            error: err instanceof Error ? err.message : 'Failed to load contract data',
-          });
+            error: prev.data ? null : message,
+          }));
         }
       }
     }

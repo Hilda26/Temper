@@ -19,7 +19,11 @@ import { useWallet } from "@/lib/wallet/WalletProvider";
 async function loadDue() {
   const ids = await getDueObservations();
   if (ids.length === 0) return [];
-  return Promise.all(ids.map((id) => getCommitment(BigInt(id))));
+  const settled = await Promise.allSettled(ids.map((id) => getCommitment(BigInt(id))));
+  return settled
+    .filter((result): result is PromiseFulfilledResult<Record<string, unknown>> => result.status === "fulfilled")
+    .map((result) => result.value)
+    .filter((commitment) => Object.keys(commitment).length > 0);
 }
 
 export default function ObserverPage() {
