@@ -275,8 +275,8 @@ function BondForm({
   );
 }
 
-const COMMITMENT_REGISTRY_RETRIES = 12;
-const COMMITMENT_REGISTRY_INTERVAL_MS = 2000;
+const COMMITMENT_REGISTRY_RETRIES = 60;
+const COMMITMENT_REGISTRY_INTERVAL_MS = 3000;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -292,7 +292,7 @@ async function waitForNewOperatorCommitmentId(operator: string, existingIds: Set
     if (newest) return newest;
     await sleep(COMMITMENT_REGISTRY_INTERVAL_MS);
   }
-  throw new Error("Commitment was created, but the new ID is not visible yet. Refresh and finish bonding from My Commitments.");
+  throw new Error("Commitment was created, but StudioNet reads are still catching up. Refresh and finish bonding from My Commitments.");
 }
 
 function CreateCommitmentForm({

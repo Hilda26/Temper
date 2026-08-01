@@ -1,3 +1,4 @@
+import { TransactionStatus } from 'genlayer-js/types';
 import { getReadClient } from './client';
 import { TransactionTimeoutError } from './errors';
 
@@ -14,7 +15,7 @@ export interface TransactionReceipt {
 }
 
 /**
- * Wait for a transaction to reach a decided state (ACCEPTED or FINALIZED).
+ * Wait for a transaction to reach the requested decided state.
  *
  * @param txHash - The transaction hash to watch
  * @param options - Optional polling configuration
@@ -23,12 +24,13 @@ export interface TransactionReceipt {
  */
 export async function waitForTransaction(
   txHash: string,
-  options?: { interval?: number; retries?: number },
+  options?: { interval?: number; retries?: number; status?: TransactionStatus },
 ): Promise<TransactionReceipt> {
   const client = getReadClient();
   try {
     const result = await client.waitForTransactionReceipt({
       hash: txHash as `0x${string}` & { length: 66 },
+      status: options?.status ?? TransactionStatus.FINALIZED,
       interval: options?.interval ?? 2000,
       retries: options?.retries ?? 60,
     });
