@@ -322,7 +322,7 @@ function PurchaseCoverageForm({
     setMessage(null);
     try {
       const tx = await purchaseCoverage(
-        { provider },
+        { provider, account: address ?? undefined },
         commitmentId,
         Number(limit),
         Number(duration),

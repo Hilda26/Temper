@@ -35,7 +35,7 @@ export default function ObserverPage() {
       setPending(commitmentId);
       setMessage(null);
       try {
-        const tx = await requestObservation({ provider }, commitmentId);
+        const tx = await requestObservation({ provider, account: address ?? undefined }, commitmentId);
         setMessage({ kind: "ok", text: "Observation triggered", txHash: tx });
         setTimeout(() => window.location.reload(), 2500);
       } catch (e) {
@@ -44,7 +44,7 @@ export default function ObserverPage() {
         setPending(null);
       }
     },
-    [provider],
+    [provider, address],
   );
 
   const rows = due ?? [];

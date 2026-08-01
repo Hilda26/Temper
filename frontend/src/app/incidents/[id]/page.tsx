@@ -341,7 +341,7 @@ export default function IncidentRoomPage() {
                 <button
                   disabled={pending === "update"}
                   onClick={() =>
-                    runAction("update", () => requestIncidentUpdate({ provider }, Number(inc.id)))
+                    runAction("update", () => requestIncidentUpdate({ provider, account: address }, Number(inc.id)))
                   }
                   className="border border-[var(--color-border-default)] px-4 py-1.5 font-mono text-[0.625rem] uppercase tracking-wider text-stone-700 hover:border-amber-600 hover:text-amber-700 disabled:opacity-50 dark:text-stone-300"
                 >
@@ -350,7 +350,7 @@ export default function IncidentRoomPage() {
                 <button
                   disabled={pending === "recovery"}
                   onClick={() =>
-                    runAction("recovery", () => requestRecoveryCheck({ provider }, Number(inc.id)))
+                    runAction("recovery", () => requestRecoveryCheck({ provider, account: address }, Number(inc.id)))
                   }
                   className="border border-[var(--color-border-default)] px-4 py-1.5 font-mono text-[0.625rem] uppercase tracking-wider text-stone-700 hover:border-amber-600 hover:text-amber-700 disabled:opacity-50 dark:text-stone-300"
                 >
@@ -378,7 +378,7 @@ export default function IncidentRoomPage() {
                       disabled={pending === "challenge" || !counterEvidence}
                       onClick={() =>
                         runAction("challenge", () =>
-                          challengeIncident({ provider }, Number(inc.id), counterEvidence),
+                          challengeIncident({ provider, account: address }, Number(inc.id), counterEvidence),
                         )
                       }
                       className="mt-2 border border-amber-600 px-4 py-1.5 font-mono text-[0.625rem] uppercase tracking-wider text-amber-700 hover:bg-amber-600 hover:text-white disabled:opacity-50 dark:text-amber-500"
@@ -391,7 +391,7 @@ export default function IncidentRoomPage() {
                   disabled={pending === "finalize-provisional"}
                   onClick={() =>
                     runAction("finalize-provisional", () =>
-                      finalizeProvisionalVerdict({ provider }, Number(inc.id)),
+                      finalizeProvisionalVerdict({ provider, account: address }, Number(inc.id)),
                     )
                   }
                   className="border border-[var(--color-border-default)] px-4 py-1.5 font-mono text-[0.625rem] uppercase tracking-wider text-stone-700 hover:border-emerald-600 hover:text-emerald-700 disabled:opacity-50 dark:text-stone-300"
@@ -411,7 +411,7 @@ export default function IncidentRoomPage() {
               <button
                 disabled={pending === "readjudicate"}
                 onClick={() =>
-                  runAction("readjudicate", () => requestReadjudication({ provider }, Number(inc.id)))
+                  runAction("readjudicate", () => requestReadjudication({ provider, account: address }, Number(inc.id)))
                 }
                 className="border border-amber-600 px-4 py-1.5 font-mono text-[0.625rem] uppercase tracking-wider text-amber-700 hover:bg-amber-600 hover:text-white disabled:opacity-50 dark:text-amber-500"
               >
@@ -422,7 +422,7 @@ export default function IncidentRoomPage() {
             {currentStep === INC_FINAL && (
               <button
                 disabled={pending === "finalize"}
-                onClick={() => runAction("finalize", () => finalizeIncident({ provider }, Number(inc.id)))}
+                onClick={() => runAction("finalize", () => finalizeIncident({ provider, account: address }, Number(inc.id)))}
                 className="border border-emerald-600 px-4 py-1.5 font-mono text-[0.625rem] uppercase tracking-wider text-emerald-700 hover:bg-emerald-600 hover:text-white disabled:opacity-50 dark:text-emerald-400"
               >
                 {pending === "finalize" ? "..." : "Finalize Incident (Settle)"}
@@ -456,7 +456,7 @@ function ClaimSection({
   incidentId,
 }: {
   provider: unknown;
-  address: string;
+  address: `0x${string}`;
   incidentId: number;
 }) {
   const fetcher = useCallback(async () => {
@@ -475,7 +475,7 @@ function ClaimSection({
     setPending(policyId);
     setMessage(null);
     try {
-      const tx = await claimPayout({ provider }, policyId);
+      const tx = await claimPayout({ provider, account: address }, policyId);
       setMessage({
         text: "Claimed. Note: the payout is recorded on-chain, but GEN sent via emit_transfer does not currently settle to wallet addresses on StudioNet -- see HANDOFF.md.",
         txHash: tx,

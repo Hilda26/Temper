@@ -179,12 +179,12 @@ export default function CapitalPage() {
                           pendingWithdraw={pending === `withdraw-${cid}`}
                           onDeposit={(amount) =>
                             runAction(`deposit-${cid}`, () =>
-                              depositCoverageCapital({ provider }, cid, BigInt(amount)),
+                              depositCoverageCapital({ provider, account: address }, cid, BigInt(amount)),
                             )
                           }
                           onWithdraw={(shares) =>
                             runAction(`withdraw-${cid}`, () =>
-                              requestUnderwriterWithdrawal({ provider }, cid, shares),
+                              requestUnderwriterWithdrawal({ provider, account: address }, cid, shares),
                             )
                           }
                         />

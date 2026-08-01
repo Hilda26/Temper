@@ -183,8 +183,8 @@ export default function OperatorPage() {
                     onSubmit={(amount) =>
                       runAction(`bond-${c.id}`, () =>
                         status === C_DRAFT
-                          ? depositOperatorBond({ provider }, Number(c.id), BigInt(amount))
-                          : addOperatorBond({ provider }, Number(c.id), BigInt(amount)),
+                          ? depositOperatorBond({ provider, account: address }, Number(c.id), BigInt(amount))
+                          : addOperatorBond({ provider, account: address }, Number(c.id), BigInt(amount)),
                       )
                     }
                   />
@@ -192,7 +192,7 @@ export default function OperatorPage() {
                     <button
                       disabled={action.pending === `activate-${c.id}`}
                       onClick={() =>
-                        runAction(`activate-${c.id}`, () => activateCommitment({ provider }, Number(c.id)))
+                        runAction(`activate-${c.id}`, () => activateCommitment({ provider, account: address }, Number(c.id)))
                       }
                       className="shrink-0 border border-emerald-600 px-3 py-1 font-mono text-[0.625rem] uppercase tracking-wider text-emerald-700 transition-colors hover:bg-emerald-600 hover:text-white disabled:opacity-50 dark:text-emerald-400"
                     >
@@ -230,6 +230,7 @@ export default function OperatorPage() {
       ) : (
         <CreateCommitmentForm
           provider={provider}
+          address={address}
           onClose={() => setShowCreate(false)}
           onSuccess={() => window.location.reload()}
         />
@@ -276,10 +277,12 @@ function BondForm({
 
 function CreateCommitmentForm({
   provider,
+  address,
   onClose,
   onSuccess,
 }: {
   provider: unknown;
+  address: `0x${string}`;
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -297,7 +300,7 @@ function CreateCommitmentForm({
     setError(null);
     try {
       await createCommitment(
-        { provider },
+        { provider, account: address },
         {
           serviceName,
           description,
