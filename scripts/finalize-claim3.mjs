@@ -1,7 +1,7 @@
 import { createClient, createAccount } from 'genlayer-js';
 import { studionet } from 'genlayer-js/chains';
 const client = createClient({ chain: studionet, endpoint: 'https://studio.genlayer.com/api' });
-const CONTRACT = '0xEe05F0c3bcE19533c81dABbbc86D761cc0DF327D';
+const CONTRACT = '0x99DE89DbD5d3c2750Cc924d59613fAdc3fe9FAbf';
 const pk = '0x7ff2824c69ea84398e87f4a151d9bd526a6160f425f3c8f1d9f28c4187166d0b';
 const acc = createAccount(pk);
 const incId = 2;

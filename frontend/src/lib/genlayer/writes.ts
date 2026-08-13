@@ -177,6 +177,11 @@ export async function purchaseCoverage(
   return callWrite(options, 'purchase_coverage', { args: [commitmentId, limit, duration], value });
 }
 
+/** Activate a policy after its waiting period has elapsed. */
+export async function activateWaitingPolicy(options: WriteOptions, policyId: number) {
+  return callWrite(options, 'activate_waiting_policy', { args: [policyId] });
+}
+
 /** Claim payout for a policy after an incident is settled. */
 export async function claimPayout(options: WriteOptions, policyId: number) {
   return callWrite(options, 'claim_payout', { args: [policyId] });

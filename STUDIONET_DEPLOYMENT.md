@@ -3,15 +3,15 @@
 ## Temper Main Contract (current, production)
 
 - **Contract**: `contracts/temper.py`
-- **Address**: `0xEe05F0c3bcE19533c81dABbbc86D761cc0DF327D`
-- **Deployed**: manually by the user on 2026-07-27, redeploying the same `contracts/temper.py`
-  source that was verified below. Zero on-chain state (no commitments/incidents/policies) as of
-  redeploy — the verification history below was run against the prior address.
+- **Address**: `0x99DE89DbD5d3c2750Cc924d59613fAdc3fe9FAbf`
+- **Deployed**: 2026-08-13 via `genlayer deploy --contract contracts/temper.py`
+- **Deploy TX**: `0xd6112dd3635d11f9166a2adf3cd20997a9a600feba1cf2fce2d1913d0b584ed2`
+- **Review fix**: validators now recompute authenticated endpoint/counter-evidence and enforce incident status, severity, responsibility, coverage trigger, and readjudication ruling from deterministic derivation rules.
 - **Network**: StudioNet (chain 61999)
 - **RPC**: `https://studio.genlayer.com/api`
 - **Explorer**: `https://explorer-studio.genlayer.com`
 - **Depends**: `py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6`
-- **Schema**: 44 methods (17 view, 27 write)
+- **Schema**: 45 methods (17 view, 28 write)
 - All of `frontend/.env.local`, `frontend/.env.example`, `frontend/src/lib/genlayer/config.ts`
   (fallback default), `observer/.env`, `observer/.env.example`, and `scripts/*.mjs` now point at
   this address.
@@ -27,7 +27,7 @@
   claim payout), all live on StudioNet. See LIVE_TEST_RECEIPTS.md — those tx hashes are
   real and against that address specifically, not the current one.
 
-Prior deployments superseded during this build (kwargs-arg fix, then two rounds of the
+Prior deployments superseded during this build and later review-fix work:
 `emit_transfer` API fix): `0xEB323128a51198261Cedfd540a86129B2f490590`,
 `0xa6f69E12E178E5Da717bFCa1257c798326ebD329`, `0xa66A63621d284aD2B0D159EA5a06b4a402b123A0`,
 `0x3882B71bfFe8dbC05D8F09D890FA8A3BC40696D9`, `0xE514E721165Dba2871fe5ADd5d2447578aCc3579`.

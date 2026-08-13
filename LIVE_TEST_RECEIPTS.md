@@ -16,7 +16,8 @@ Deployed 4 times during this build while fixing bugs discovered in live testing.
 | 3 (partial emit_transfer fix) | `0x2393898e510ac0c17f03e477eac87874a84265b66b5b792972fa40e61186035a` | `0xa66A63621d284aD2B0D159EA5a06b4a402b123A0` | ACCEPTED, 5/5 AGREE | Removed double `Address()` wrap only — still broken (wrong function name) |
 | 4 (correct API, still wrong wrap) | `0x9e2ac2b5c6303b412c51aed1fab6da09274c0813907fc832695de9ac5cdcb811` | `0x3882B71bfFe8dbC05D8F09D890FA8A3BC40696D9` | ACCEPTED, 5/5 AGREE | Fixed `gl.get_contract_at`, still wrapped stored Address in `Address()` — still broken |
 | 5 (final, fully fixed) | `0x175f02914987334bc4b0dfa1c799756c7d6c37d57d879267143ac2b4ff40dad4` | `0xE514E721165Dba2871fe5ADd5d2447578aCc3579` | ACCEPTED, 5/5 AGREE | Superseded — see below |
-| 6 (user's manual redeploy) | — | **`0xEe05F0c3bcE19533c81dABbbc86D761cc0DF327D`** | — | **Current production address** — same code as #5, redeployed manually |
+| 6 (user manual redeploy) | — | **`0xEe05F0c3bcE19533c81dABbbc86D761cc0DF327D`** | ACCEPTED | Prior production address before the review-fix redeploy |
+| 7 (review-fix redeploy) | `0xd6112dd3635d11f9166a2adf3cd20997a9a600feba1cf2fce2d1913d0b584ed2` | **`0x99DE89DbD5d3c2750Cc924d59613fAdc3fe9FAbf`** | ACCEPTED / MAJORITY_AGREE | **Current production address** — evidence-derived adjudication, waiting-policy activation, partial-withdraw lifecycle |
 
 ## Seed Data (PASS)
 
@@ -121,3 +122,35 @@ REST query against the new Supabase project (`qepuqyyvhailxmzqtnfr`):
 
 - Contract: https://explorer-studio.genlayer.com/address/0xE514E721165Dba2871fe5ADd5d2447578aCc3579
 - Deploy TX: https://explorer-studio.genlayer.com/tx/0x175f02914987334bc4b0dfa1c799756c7d6c37d57d879267143ac2b4ff40dad4
+
+## Review-Fix Verification (PASS, 2026-08-13)
+
+Current contract: `0x99DE89DbD5d3c2750Cc924d59613fAdc3fe9FAbf`
+Deploy tx: `0xd6112dd3635d11f9166a2adf3cd20997a9a600feba1cf2fce2d1913d0b584ed2`
+
+### Authenticated endpoint settlement
+
+| Step | TX Hash | Result |
+|---|---|---|
+| create_commitment (#1, failing primary + failing backup) | `0x96801a7e7f4ff578eb526f10f8b6e979a4041a195204c57c24e176ec4b9ee552` | SUCCESS |
+| deposit_operator_bond | `0xa2725c7bf7d6346efdb860ad23fb6521fb1011476ab97ff0a9a0e2c19acc404f` | SUCCESS |
+| activate_commitment | `0xa79f2d5b2f6914c12e7b7c91b565b8ac8b2d13e4851a2cf8563de88440bd9695` | SUCCESS |
+| deposit_coverage_capital | `0xd11e5cd8587a8f2b89f6bd62421bcf279fd6a8ba3984aec7cefd6948ad2efd91` | SUCCESS |
+| purchase_coverage (#1) | `0x779cc09042c490250c85a9cbf1d9ab15440572576e001425318a20afd3a26ec0` | SUCCESS |
+| request_observation #1 | `0x4674d9ba178c60de155661a1d38b5e05a35ff98173534ab0879e1f399dc54c13` | SUCCESS |
+| request_observation #2 | `0x8e47d1e9edecc9319b58a1967c7fedd9047cf51949c67b6de479bd512b8d4c9b` | SUCCESS, opened incident #1 with `AUTHENTICATED_PRIMARY_AND_BACKUP_FAILURE` |
+| finalize_provisional_verdict | `0xe54c0872629d04ba68d2ec2c928989c7b07a4f76bcfa681260836c3c553140bd` | SUCCESS |
+| finalize_incident | `0x0f2927f2ad32e63062f9a72f96aee0d9306cf3076476764b7f07f15b8b82c61e` | SUCCESS, severity MATERIAL, slash 250 |
+| claim_payout | `0x3f9afa9d01a1ccc282e28d7d7b93b0e77486a7dd0d4b906509ddff32b73d7a25` | SUCCESS, policy claimed 990 |
+
+### Counter-evidence readjudication
+
+| Step | TX Hash | Result |
+|---|---|---|
+| create_commitment (#3, failing primary + failing backup) | `0xf0aa94a7218d5097a737798d8f34c4376cf883ecc6290f16dbefeef029650fba` | SUCCESS |
+| deposit_operator_bond | `0x70c3b99a4dd6f69e17c4761979d6576a0c44ff93b37e13efc7ec32f9fd7f07aa` | SUCCESS |
+| activate_commitment | `0x11d061321a3338ce463c3baa262e4308414de9a250f70e9f171a975632bdbdac` | SUCCESS |
+| deposit_coverage_capital | `0x2769e5ae14518bde27f4f380a667979798818287ada5e56fca10705ebe0d8b89` | SUCCESS |
+| request_observation | `0x09b24bd4e9254fe97029d0bb128f9cd6d6576b76cbe680576e6de1aa61eb945b` | SUCCESS, opened incident #2 |
+| challenge_incident (`https://httpbin.org/status/200`) | `0x750a355f49dde34f3452b9f7e57f5c1e1f511d3ece87c48445eb5010de09b69b` | SUCCESS |
+| request_readjudication | `0x074c43c2a91d34906670348c5d058660732ec9e03b8123af6eadb355f95e2d05` | SUCCESS, incident #2 FINAL, severity MINOR, responsibility SHARED, evidence `AUTHENTICATED_FAILURE_WITH_COUNTER_EVIDENCE` |

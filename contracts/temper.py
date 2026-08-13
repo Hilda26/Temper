@@ -300,6 +300,73 @@ class Temper(gl.Contract):
     def _now(self) -> int:
         return int(time.time())
 
+    def _severity_name(self, severity: u256) -> str:
+        sev_names = ["NONE", "WARNING", "MINOR", "MATERIAL", "CRITICAL"]
+        sev_int = int(severity)
+        if sev_int < 0 or sev_int >= len(sev_names):
+            return "MATERIAL"
+        return sev_names[sev_int]
+
+    def _severity_value(self, severity: str) -> u256:
+        sev_map = {"NONE": SEV_NONE, "WARNING": SEV_WARNING, "MINOR": SEV_MINOR, "MATERIAL": SEV_MATERIAL, "CRITICAL": SEV_CRITICAL}
+        return sev_map.get(severity, SEV_NONE)
+
+    def _event_status_value(self, event_status: str) -> u256:
+        event_map = {"NOT_CONFIRMED": EVT_NOT_CONFIRMED, "CONFIRMED": EVT_CONFIRMED, "INSUFFICIENT_EVIDENCE": EVT_INSUFFICIENT_EVIDENCE, "SOURCE_FAILURE": EVT_SOURCE_FAILURE, "CONFLICTING_EVIDENCE": EVT_CONFLICTING_EVIDENCE}
+        return event_map.get(event_status, EVT_INSUFFICIENT_EVIDENCE)
+
+    def _responsibility_value(self, responsibility: str) -> u256:
+        resp_map = {"OPERATOR": RESP_OPERATOR, "EXTERNAL": RESP_EXTERNAL, "CLAIMANT": RESP_CLAIMANT, "SHARED": RESP_SHARED, "UNKNOWN": RESP_UNKNOWN}
+        return resp_map.get(responsibility, RESP_UNKNOWN)
+
+    def _derive_endpoint_decision(self, primary_status: str, backup_status: str, consecutive_failures: int, threshold: int) -> str:
+        failure_count = consecutive_failures + 1
+        backup_configured = backup_status != "NOT_CONFIGURED"
+        if primary_status == "UP":
+            return json.dumps({"is_healthy": True, "event_status": "NOT_CONFIRMED", "severity": "NONE", "responsibility": "UNKNOWN", "coverage_trigger": 0, "evidence_quality": "AUTHENTICATED_PRIMARY_HEALTHY"})
+        if backup_configured and backup_status == "UP":
+            return json.dumps({"is_healthy": False, "event_status": "CONFLICTING_EVIDENCE", "severity": "WARNING", "responsibility": "SHARED", "coverage_trigger": 0, "evidence_quality": "AUTHENTICATED_PRIMARY_FAILING_BACKUP_HEALTHY"})
+        if failure_count < threshold:
+            return json.dumps({"is_healthy": False, "event_status": "SOURCE_FAILURE", "severity": "WARNING", "responsibility": "UNKNOWN", "coverage_trigger": 0, "evidence_quality": "AUTHENTICATED_FAILURE_BELOW_THRESHOLD"})
+        severity = "CRITICAL" if failure_count >= threshold * 2 else "MATERIAL"
+        evidence_quality = "AUTHENTICATED_PRIMARY_AND_BACKUP_FAILURE" if backup_configured else "AUTHENTICATED_PRIMARY_FAILURE"
+        return json.dumps({"is_healthy": False, "event_status": "CONFIRMED", "severity": severity, "responsibility": "OPERATOR", "coverage_trigger": 1, "evidence_quality": evidence_quality})
+
+    def _derive_readjudication_decision(self, primary_status: str, backup_status: str, counter_available: bool, original_severity: int) -> str:
+        service_recovered = primary_status == "UP"
+        backup_healthy = backup_status == "UP"
+        original_name = self._severity_name(u256(original_severity))
+        if service_recovered and counter_available:
+            return json.dumps({"ruling": "OVERTURN", "event_status": "NOT_CONFIRMED", "severity": "NONE", "coverage_trigger": 0, "responsibility": "UNKNOWN", "evidence_quality": "AUTHENTICATED_RECOVERY_WITH_COUNTER_EVIDENCE"})
+        if service_recovered or backup_healthy:
+            return json.dumps({"ruling": "REDUCE_SEVERITY", "event_status": "CONFLICTING_EVIDENCE", "severity": "WARNING", "coverage_trigger": 0, "responsibility": "SHARED", "evidence_quality": "AUTHENTICATED_RECOVERY_OR_BACKUP_HEALTHY"})
+        if counter_available and original_severity > int(SEV_MINOR):
+            return json.dumps({"ruling": "REDUCE_SEVERITY", "event_status": "CONFIRMED", "severity": "MINOR", "coverage_trigger": 1, "responsibility": "SHARED", "evidence_quality": "AUTHENTICATED_FAILURE_WITH_COUNTER_EVIDENCE"})
+        return json.dumps({"ruling": "UPHOLD", "event_status": "CONFIRMED", "severity": original_name, "coverage_trigger": 1, "responsibility": "OPERATOR", "evidence_quality": "AUTHENTICATED_FAILURE_REPLAYED"})
+
+    def _policy_waiting_complete(self, policy_id: u256, cid: u256, at_time: int) -> bool:
+        pol_start = int(self.policy_start.get(policy_id) or u256(0))
+        waiting = int(self.commitment_waiting_period.get(cid) or u256(0))
+        return at_time >= pol_start + waiting
+
+    def _activate_waiting_policy_if_ready(self, policy_id: u256, now: int) -> bool:
+        status = int(self.policy_status.get(policy_id) or u256(0))
+        if status != int(POL_PENDING_WAIT):
+            return False
+        cid = self.policy_commitment.get(policy_id)
+        if cid is None:
+            return False
+        pol_end = int(self.policy_end.get(policy_id) or u256(0))
+        if now > pol_end:
+            self.policy_status[policy_id] = POL_EXPIRED
+            return False
+        if not self._policy_waiting_complete(policy_id, cid, now):
+            return False
+        self.policy_status[policy_id] = POL_ACTIVE
+        apc = int(self.commitment_active_policy_count.get(cid) or u256(0))
+        self.commitment_active_policy_count[cid] = u256(apc + 1)
+        return True
+
     # ==============================================
     #  OPERATOR: COMMITMENT LIFECYCLE
     # ==============================================
@@ -575,14 +642,18 @@ class Temper(gl.Contract):
             active_inc = int(self.commitment_active_incident.get(commitment_id) or u256(0))
             if active_inc > 0:
                 raise gl.vm.UserError("INCIDENT_ACTIVE")
-            self.underwriter_withdrawal_status[key] = WD_QUEUED
+            self.underwriter_withdrawal_status[key] = WD_EXECUTABLE
+            wd_status = int(WD_EXECUTABLE)
 
-        if wd_status != int(WD_QUEUED) and wd_status != int(WD_LOCKED_BY_INCIDENT):
+        if wd_status != int(WD_QUEUED) and wd_status != int(WD_EXECUTABLE):
             raise gl.vm.UserError("NOT_QUEUED")
 
         shares_to_withdraw = int(self.underwriter_withdrawal_shares.get(key) or u256(0))
+        existing_shares = int(self.underwriter_shares.get(key) or u256(0))
         if shares_to_withdraw == 0:
             raise gl.vm.UserError("ZERO_SHARES")
+        if shares_to_withdraw > existing_shares:
+            shares_to_withdraw = existing_shares
 
         total_shares = int(self.vault_total_shares.get(commitment_id) or u256(0))
         if total_shares == 0:
@@ -590,20 +661,34 @@ class Temper(gl.Contract):
 
         free = self._free_capital(commitment_id)
         gross = int(self.vault_gross_capital.get(commitment_id) or u256(0))
-
-        share_value = (shares_to_withdraw * gross) // total_shares
-        payout = min(share_value, free)
-        if payout <= 0:
+        if gross <= 0 or free <= 0:
             raise gl.vm.UserError("NO_FREE_CAPITAL")
 
+        share_value = (shares_to_withdraw * gross) // total_shares
+        executable_shares = shares_to_withdraw
+        payout = share_value
+        if share_value > free:
+            executable_shares = (free * total_shares) // gross
+            if executable_shares <= 0:
+                raise gl.vm.UserError("NO_FREE_CAPITAL")
+            if executable_shares > shares_to_withdraw:
+                executable_shares = shares_to_withdraw
+            payout = (executable_shares * gross) // total_shares
+            if payout > free:
+                payout = free
+
+        remaining_request = shares_to_withdraw - executable_shares
+
         self.vault_gross_capital[commitment_id] = u256(gross - payout)
-        self.vault_total_shares[commitment_id] = u256(total_shares - shares_to_withdraw)
+        self.vault_total_shares[commitment_id] = u256(total_shares - executable_shares)
+        self.underwriter_shares[key] = u256(existing_shares - executable_shares)
 
-        existing_shares = int(self.underwriter_shares.get(key) or u256(0))
-        self.underwriter_shares[key] = u256(existing_shares - shares_to_withdraw)
-
-        self.underwriter_withdrawal_status[key] = WD_EXECUTED
-        self.underwriter_withdrawal_shares[key] = u256(0)
+        if remaining_request > 0:
+            self.underwriter_withdrawal_status[key] = WD_QUEUED
+            self.underwriter_withdrawal_shares[key] = u256(remaining_request)
+        else:
+            self.underwriter_withdrawal_status[key] = WD_EXECUTED
+            self.underwriter_withdrawal_shares[key] = u256(0)
 
         gl.get_contract_at(sender).emit_transfer(value=u256(payout))
 
@@ -693,8 +778,9 @@ class Temper(gl.Contract):
 
         pc = int(self.commitment_policy_count.get(commitment_id) or u256(0))
         self.commitment_policy_count[commitment_id] = u256(pc + 1)
-        apc = int(self.commitment_active_policy_count.get(commitment_id) or u256(0))
-        self.commitment_active_policy_count[commitment_id] = u256(apc + 1)
+        if waiting == 0:
+            apc = int(self.commitment_active_policy_count.get(commitment_id) or u256(0))
+            self.commitment_active_policy_count[commitment_id] = u256(apc + 1)
 
         self._append_to_json_array(self.commitment_policy_ids, commitment_id, int(pid))
 
@@ -706,6 +792,16 @@ class Temper(gl.Contract):
             gl.get_contract_at(gl.message.sender_address).emit_transfer(value=u256(refund))
 
         return pid
+
+    @gl.public.write
+    def activate_waiting_policy(self, policy_id: u256) -> None:
+        holder = self.policy_holder.get(policy_id)
+        if holder is None:
+            raise gl.vm.UserError("POLICY_NOT_FOUND")
+        if gl.message.sender_address != holder:
+            raise gl.vm.UserError("NOT_HOLDER")
+        if not self._activate_waiting_policy_if_ready(policy_id, self._now()):
+            raise gl.vm.UserError("WAITING_PERIOD_ACTIVE")
 
     @gl.public.write
     def claim_payout(self, policy_id: u256) -> None:
@@ -781,89 +877,83 @@ class Temper(gl.Contract):
 
         def leader_fn():
             primary_status = "UNKNOWN"
+            primary_code = 0
             primary_body = ""
-            backup_status = "UNKNOWN"
+            backup_status = "NOT_CONFIGURED"
+            backup_code = 0
             backup_body = ""
-
             try:
                 resp = gl.nondet.web.get(target)
+                primary_code = int(resp.status)
                 primary_status = "UP" if resp.status >= 200 and resp.status < 400 else "DOWN"
                 if resp.body:
                     primary_body = resp.body.decode("utf-8", errors="replace")[:500]
             except Exception:
                 primary_status = "UNREACHABLE"
-
             if backup and backup != "":
                 try:
                     resp2 = gl.nondet.web.get(backup)
+                    backup_code = int(resp2.status)
                     backup_status = "UP" if resp2.status >= 200 and resp2.status < 400 else "DOWN"
                     if resp2.body:
                         backup_body = resp2.body.decode("utf-8", errors="replace")[:500]
                 except Exception:
                     backup_status = "UNREACHABLE"
-
-            is_healthy = primary_status == "UP"
-
-            if not is_healthy and consec_failures + 1 >= threshold:
-                event_status = "CONFIRMED"
-                if consec_failures + 1 >= threshold * 2:
-                    severity = "CRITICAL"
-                elif consec_failures + 1 >= threshold:
-                    severity = "MATERIAL"
-                else:
-                    severity = "MINOR"
-            elif not is_healthy:
-                event_status = "NOT_CONFIRMED"
-                severity = "WARNING"
-            else:
-                event_status = "NOT_CONFIRMED"
-                severity = "NONE"
-
+            decision = json.loads(self._derive_endpoint_decision(primary_status, backup_status, consec_failures, threshold))
             result = {
                 "primary_status": primary_status,
+                "primary_status_code": primary_code,
                 "backup_status": backup_status,
-                "is_healthy": is_healthy,
-                "event_status": event_status,
-                "severity": severity,
-                "consecutive_failures": consec_failures + (0 if is_healthy else 1),
-                "summary": f"Primary: {primary_status}, Backup: {backup_status}",
+                "backup_status_code": backup_code,
+                "target_url": target,
+                "backup_url": backup,
+                "primary_body_sample": primary_body,
+                "backup_body_sample": backup_body,
+                "is_healthy": decision["is_healthy"],
+                "event_status": decision["event_status"],
+                "severity": decision["severity"],
+                "responsibility": decision["responsibility"],
+                "coverage_trigger": decision["coverage_trigger"],
+                "evidence_quality": decision["evidence_quality"],
+                "authenticated_source": "COMMITTED_ENDPOINTS",
+                "consecutive_failures": consec_failures + (0 if decision["is_healthy"] else 1),
+                "summary": f"Authenticated endpoint evidence: primary={primary_status}({primary_code}), backup={backup_status}({backup_code}), event={decision['event_status']}, severity={decision['severity']}",
             }
             return json.dumps(result)
 
         def validator_fn(leader_result):
             if not isinstance(leader_result, gl.vm.Return):
                 return False
-
             try:
                 leader_data = json.loads(leader_result.calldata)
             except Exception:
                 return False
-
-            for field in ["primary_status", "event_status", "severity", "is_healthy"]:
+            required = ["primary_status", "backup_status", "event_status", "severity", "is_healthy", "responsibility", "coverage_trigger", "evidence_quality", "authenticated_source"]
+            for field in required:
                 if field not in leader_data:
                     return False
-
-            valid_statuses = ["UP", "DOWN", "UNREACHABLE", "UNKNOWN"]
-            if leader_data["primary_status"] not in valid_statuses:
+            if leader_data.get("authenticated_source") != "COMMITTED_ENDPOINTS":
                 return False
-
-            valid_events = ["NOT_CONFIRMED", "CONFIRMED", "INSUFFICIENT_EVIDENCE", "SOURCE_FAILURE", "CONFLICTING_EVIDENCE"]
-            if leader_data["event_status"] not in valid_events:
-                return False
-
-            valid_severities = ["NONE", "WARNING", "MINOR", "MATERIAL", "CRITICAL"]
-            if leader_data["severity"] not in valid_severities:
-                return False
-
             try:
                 my_resp = gl.nondet.web.get(target)
-                my_healthy = my_resp.status >= 200 and my_resp.status < 400
+                my_primary_status = "UP" if my_resp.status >= 200 and my_resp.status < 400 else "DOWN"
             except Exception:
-                my_healthy = False
-
-            if my_healthy != leader_data["is_healthy"]:
+                my_primary_status = "UNREACHABLE"
+            my_backup_status = "NOT_CONFIGURED"
+            if backup and backup != "":
+                try:
+                    my_resp2 = gl.nondet.web.get(backup)
+                    my_backup_status = "UP" if my_resp2.status >= 200 and my_resp2.status < 400 else "DOWN"
+                except Exception:
+                    my_backup_status = "UNREACHABLE"
+            if my_primary_status != leader_data["primary_status"]:
                 return False
-
+            if my_backup_status != leader_data["backup_status"]:
+                return False
+            expected = json.loads(self._derive_endpoint_decision(my_primary_status, my_backup_status, consec_failures, threshold))
+            for field in ["is_healthy", "event_status", "severity", "responsibility", "coverage_trigger", "evidence_quality"]:
+                if leader_data.get(field) != expected.get(field):
+                    return False
             return True
 
         result_json = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
@@ -905,8 +995,7 @@ class Temper(gl.Contract):
             self.commitment_consecutive_failures[commitment_id] = u256(new_consec)
 
             if event_status == "CONFIRMED":
-                sev_map = {"NONE": SEV_NONE, "WARNING": SEV_WARNING, "MINOR": SEV_MINOR, "MATERIAL": SEV_MATERIAL, "CRITICAL": SEV_CRITICAL}
-                severity_u = sev_map.get(severity_str, SEV_NONE)
+                severity_u = self._severity_value(severity_str)
 
                 active_inc = int(self.commitment_active_incident.get(commitment_id) or u256(0))
                 if active_inc == 0:
@@ -916,8 +1005,8 @@ class Temper(gl.Contract):
                     self.incident_commitment[inc_id] = commitment_id
                     self.incident_status[inc_id] = INC_PROVISIONAL_VERDICT
                     self.incident_severity[inc_id] = severity_u
-                    self.incident_event_status[inc_id] = EVT_CONFIRMED
-                    self.incident_responsibility[inc_id] = RESP_OPERATOR
+                    self.incident_event_status[inc_id] = self._event_status_value(event_status)
+                    self.incident_responsibility[inc_id] = self._responsibility_value(result.get("responsibility", "UNKNOWN"))
                     slash_bps = self._get_slash_bps_for_severity(commitment_id, severity_u)
                     self.incident_slash_bps[inc_id] = u256(slash_bps)
                     self.incident_start_time[inc_id] = u256(now)
@@ -925,8 +1014,9 @@ class Temper(gl.Contract):
                     self.incident_duration[inc_id] = u256(0)
                     self.incident_source_hash[inc_id] = result_json[:200]
                     self.incident_summary[inc_id] = result.get("summary", "")
+                    self.incident_evidence_quality[inc_id] = result.get("evidence_quality", "")
                     self.incident_payout_tier[inc_id] = severity_u
-                    self.incident_coverage_trigger[inc_id] = u256(1)
+                    self.incident_coverage_trigger[inc_id] = u256(int(result.get("coverage_trigger", 0)))
                     self.incident_observation_id[inc_id] = obs_id
 
                     self.commitment_active_incident[commitment_id] = inc_id
@@ -1047,49 +1137,56 @@ class Temper(gl.Contract):
 
         def leader_fn():
             primary_status = "UNKNOWN"
+            primary_code = 0
+            backup_status = "NOT_CONFIGURED"
+            backup_code = 0
             try:
                 resp = gl.nondet.web.get(target)
+                primary_code = int(resp.status)
                 primary_status = "UP" if resp.status >= 200 and resp.status < 400 else "DOWN"
             except Exception:
                 primary_status = "UNREACHABLE"
 
+            if backup and backup != "":
+                try:
+                    resp2 = gl.nondet.web.get(backup)
+                    backup_code = int(resp2.status)
+                    backup_status = "UP" if resp2.status >= 200 and resp2.status < 400 else "DOWN"
+                except Exception:
+                    backup_status = "UNREACHABLE"
+
             counter_results = []
+            counter_supports_operator = False
             if counter_urls:
                 for url in counter_urls.split("|")[:3]:
                     url = url.strip()
                     if url:
                         try:
                             cr = gl.nondet.web.get(url)
-                            counter_results.append({"url": url, "status": cr.status, "available": cr.status >= 200 and cr.status < 400})
+                            available = cr.status >= 200 and cr.status < 400
+                            counter_results.append({"url": url, "status": int(cr.status), "available": available})
+                            if available:
+                                counter_supports_operator = True
                         except Exception:
                             counter_results.append({"url": url, "status": 0, "available": False})
 
-            is_still_down = primary_status != "UP"
-
-            counter_supports_operator = any(r.get("available", False) for r in counter_results)
-
-            if not is_still_down and counter_supports_operator:
-                new_event = "NOT_CONFIRMED"
-                new_severity = "NONE"
-                ruling = "OVERTURN"
-            elif not is_still_down:
-                new_severity = "WARNING"
-                new_event = "NOT_CONFIRMED"
-                ruling = "REDUCE_SEVERITY"
-            else:
-                new_event = "CONFIRMED"
-                sev_names = ["NONE", "WARNING", "MINOR", "MATERIAL", "CRITICAL"]
-                new_severity = sev_names[orig_sev] if orig_sev < len(sev_names) else "MATERIAL"
-                ruling = "UPHOLD"
-
+            decision = json.loads(self._derive_readjudication_decision(primary_status, backup_status, counter_supports_operator, orig_sev))
             return json.dumps({
-                "ruling": ruling,
-                "event_status": new_event,
-                "severity": new_severity,
+                "ruling": decision["ruling"],
+                "event_status": decision["event_status"],
+                "severity": decision["severity"],
+                "coverage_trigger": decision["coverage_trigger"],
+                "responsibility": decision["responsibility"],
+                "evidence_quality": decision["evidence_quality"],
+                "authenticated_source": "COMMITTED_ENDPOINTS_AND_COUNTER_EVIDENCE",
                 "primary_status": primary_status,
+                "primary_status_code": primary_code,
+                "backup_status": backup_status,
+                "backup_status_code": backup_code,
                 "counter_results": counter_results,
+                "counter_supports_operator": counter_supports_operator,
                 "original_summary": orig_summary,
-                "readjudication_summary": f"Re-adjudication: primary={primary_status}, ruling={ruling}"
+                "readjudication_summary": f"Authenticated readjudication: primary={primary_status}({primary_code}), backup={backup_status}({backup_code}), counter={counter_supports_operator}, ruling={decision['ruling']}"
             })
 
         def validator_fn(leader_result):
@@ -1099,21 +1196,47 @@ class Temper(gl.Contract):
                 data = json.loads(leader_result.calldata)
             except Exception:
                 return False
-
-            valid_rulings = ["UPHOLD", "REDUCE_SEVERITY", "INCREASE_WITHIN_POLICY", "OVERTURN", "MARK_SOURCE_FAILURE", "APPLY_SHARED_RESPONSIBILITY"]
-            if data.get("ruling") not in valid_rulings:
+            required = ["ruling", "event_status", "severity", "coverage_trigger", "responsibility", "evidence_quality", "authenticated_source", "primary_status", "backup_status", "counter_supports_operator"]
+            for field in required:
+                if field not in data:
+                    return False
+            if data.get("authenticated_source") != "COMMITTED_ENDPOINTS_AND_COUNTER_EVIDENCE":
                 return False
 
             try:
                 my_resp = gl.nondet.web.get(target)
-                my_healthy = my_resp.status >= 200 and my_resp.status < 400
+                my_primary_status = "UP" if my_resp.status >= 200 and my_resp.status < 400 else "DOWN"
             except Exception:
-                my_healthy = False
+                my_primary_status = "UNREACHABLE"
+            my_backup_status = "NOT_CONFIGURED"
+            if backup and backup != "":
+                try:
+                    my_resp2 = gl.nondet.web.get(backup)
+                    my_backup_status = "UP" if my_resp2.status >= 200 and my_resp2.status < 400 else "DOWN"
+                except Exception:
+                    my_backup_status = "UNREACHABLE"
+            counter_available = False
+            if counter_urls:
+                for url in counter_urls.split("|")[:3]:
+                    url = url.strip()
+                    if url:
+                        try:
+                            cr = gl.nondet.web.get(url)
+                            if cr.status >= 200 and cr.status < 400:
+                                counter_available = True
+                        except Exception:
+                            pass
 
-            leader_healthy = data.get("primary_status") == "UP"
-            if my_healthy != leader_healthy:
+            if data.get("primary_status") != my_primary_status:
                 return False
-
+            if data.get("backup_status") != my_backup_status:
+                return False
+            if data.get("counter_supports_operator") != counter_available:
+                return False
+            expected = json.loads(self._derive_readjudication_decision(my_primary_status, my_backup_status, counter_available, orig_sev))
+            for field in ["ruling", "event_status", "severity", "coverage_trigger", "responsibility", "evidence_quality"]:
+                if data.get(field) != expected.get(field):
+                    return False
             return True
 
         result_json = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
@@ -1122,10 +1245,14 @@ class Temper(gl.Contract):
         ruling = result.get("ruling", "UPHOLD")
         self.incident_readjudication_hash[incident_id] = result_json[:200]
 
-        sev_map = {"NONE": SEV_NONE, "WARNING": SEV_WARNING, "MINOR": SEV_MINOR, "MATERIAL": SEV_MATERIAL, "CRITICAL": SEV_CRITICAL}
+        new_sev = self._severity_value(result.get("severity", "NONE"))
+        coverage_trigger = int(result.get("coverage_trigger", 0))
+        self.incident_event_status[incident_id] = self._event_status_value(result.get("event_status", "INSUFFICIENT_EVIDENCE"))
+        self.incident_responsibility[incident_id] = self._responsibility_value(result.get("responsibility", "UNKNOWN"))
+        self.incident_evidence_quality[incident_id] = result.get("evidence_quality", "")
+        self.incident_summary[incident_id] = result.get("readjudication_summary", "")
 
         if ruling == "OVERTURN":
-            self.incident_event_status[incident_id] = EVT_NOT_CONFIRMED
             self.incident_severity[incident_id] = SEV_NONE
             self.incident_slash_bps[incident_id] = u256(0)
             self.incident_payout_tier[incident_id] = u256(0)
@@ -1136,15 +1263,12 @@ class Temper(gl.Contract):
             self.commitment_active_incident[cid] = u256(0)
             self.commitment_consecutive_failures[cid] = u256(0)
             self.commitment_status[cid] = C_ACTIVE
-        elif ruling == "REDUCE_SEVERITY":
-            new_sev_str = result.get("severity", "WARNING")
-            new_sev = sev_map.get(new_sev_str, SEV_WARNING)
+        else:
             self.incident_severity[incident_id] = new_sev
             new_slash = self._get_slash_bps_for_severity(cid, new_sev)
             self.incident_slash_bps[incident_id] = u256(new_slash)
             self.incident_payout_tier[incident_id] = new_sev
-            self.incident_status[incident_id] = INC_FINAL
-        else:
+            self.incident_coverage_trigger[incident_id] = u256(coverage_trigger)
             self.incident_status[incident_id] = INC_FINAL
 
     @gl.public.write
@@ -1212,15 +1336,20 @@ class Temper(gl.Contract):
             for pid_int in policy_ids:
                 pid = u256(pid_int)
                 pol_status = int(self.policy_status.get(pid) or u256(0))
-                if pol_status != int(POL_ACTIVE) and pol_status != int(POL_INCIDENT_LOCKED):
-                    continue
-
                 pol_start = int(self.policy_start.get(pid) or u256(0))
                 pol_end = int(self.policy_end.get(pid) or u256(0))
                 waiting = int(self.commitment_waiting_period.get(cid) or u256(0))
                 inc_start = int(self.incident_start_time.get(incident_id) or u256(0))
+                waiting_complete_at_incident = inc_start >= pol_start + waiting
 
-                if inc_start < pol_start + waiting:
+                if pol_status == int(POL_PENDING_WAIT) and waiting_complete_at_incident:
+                    apc = int(self.commitment_active_policy_count.get(cid) or u256(0))
+                    self.commitment_active_policy_count[cid] = u256(apc + 1)
+                    pol_status = int(POL_ACTIVE)
+
+                if pol_status != int(POL_ACTIVE) and pol_status != int(POL_INCIDENT_LOCKED):
+                    continue
+                if not waiting_complete_at_incident:
                     continue
                 if inc_start > pol_end:
                     continue
@@ -1452,11 +1581,19 @@ class Temper(gl.Contract):
         status = int(self.policy_status.get(policy_id) or u256(0))
         claimable = int(self.policy_claimable.get(policy_id) or u256(0))
         claimed = int(self.policy_claimed.get(policy_id) or u256(0))
+        cid = self.policy_commitment.get(policy_id) or u256(0)
+        now = self._now()
+        start = int(self.policy_start.get(policy_id) or u256(0))
+        waiting = int(self.commitment_waiting_period.get(cid) or u256(0))
+        activation_time = start + waiting
         return json.dumps({
             "status": status,
             "claimable": claimable,
             "claimed": claimed,
             "can_claim": status == int(POL_PAYOUT_READY) and claimable > claimed,
+            "activation_time": activation_time,
+            "waiting_remaining": max(0, activation_time - now) if status == int(POL_PENDING_WAIT) else 0,
+            "can_activate": status == int(POL_PENDING_WAIT) and now >= activation_time,
         })
 
     @gl.public.view
@@ -1494,6 +1631,7 @@ class Temper(gl.Contract):
             "current_value": current_value,
             "withdrawal_status": wd_status,
             "withdrawal_shares": wd_shares,
+            "withdrawal_executable": wd_status == int(WD_QUEUED) or wd_status == int(WD_EXECUTABLE),
             "premium_claimed": premium_claimed,
         })
 

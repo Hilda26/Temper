@@ -3,7 +3,7 @@
 Temper is an on-chain assurance system built on GenLayer StudioNet. Operators create service commitments, underwriters collateralize coverage, policyholders buy protection, and observer-triggered web checks drive incident adjudication, slashing, and claim accounting.
 
 Live frontend: https://temper-alpha.vercel.app  
-Current StudioNet contract: `0xEe05F0c3bcE19533c81dABbbc86D761cc0DF327D`
+Current StudioNet contract: `0x99DE89DbD5d3c2750Cc924d59613fAdc3fe9FAbf`
 
 ## Repo Layout
 
@@ -53,7 +53,7 @@ The frontend needs GenLayer public config plus optional Supabase anon config:
 NEXT_PUBLIC_GENLAYER_CHAIN_ID=61999
 NEXT_PUBLIC_GENLAYER_RPC_URL=https://studio.genlayer.com/api
 NEXT_PUBLIC_GENLAYER_EXPLORER_URL=https://explorer-studio.genlayer.com
-NEXT_PUBLIC_TEMPER_CONTRACT_ADDRESS=0xEe05F0c3bcE19533c81dABbbc86D761cc0DF327D
+NEXT_PUBLIC_TEMPER_CONTRACT_ADDRESS=0x99DE89DbD5d3c2750Cc924d59613fAdc3fe9FAbf
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 ```

@@ -58,6 +58,7 @@ export {
   cancelUnderwriterWithdrawal,
   executeUnderwriterWithdrawal,
   purchaseCoverage,
+  activateWaitingPolicy,
   claimPayout,
   requestObservation,
   openSuspectedIncident,
