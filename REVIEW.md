@@ -2,7 +2,7 @@
 
 ## Review Item
 
-The team asked us to address the following:
+i was asked to address the following:
 
 > Validators confirm endpoint reachability but do not independently enforce the incident status, severity, counter-evidence, and ruling that drive financial outcomes. Make those fields derive from authenticated service evidence, and close the waiting-policy and partial-withdrawal lifecycle gaps.
 
