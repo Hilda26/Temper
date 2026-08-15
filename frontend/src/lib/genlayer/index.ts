@@ -60,6 +60,7 @@ export {
   purchaseCoverage,
   activateWaitingPolicy,
   claimPayout,
+  sweepExpiredPolicies,
   requestObservation,
   openSuspectedIncident,
   requestIncidentUpdate,

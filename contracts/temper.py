@@ -83,6 +83,11 @@ TMPL_ONCHAIN_STATE = u256(1)
 # Basis points constants
 BPS_MAX = 10000
 
+# Counter-evidence submitted by an operator is only admissible if it originates from a host
+# the commitment itself declared at creation time (target or backup). Without this bound an
+# operator could point adjudication at a domain they control and manufacture their own acquittal.
+MAX_COUNTER_EVIDENCE_URLS = 5
+
 
 class Temper(gl.Contract):
     # -- Global counters --
@@ -187,6 +192,11 @@ class Temper(gl.Contract):
     incident_challenger: TreeMap[u256, Address]
     incident_challenge_time: TreeMap[u256, u256]
     incident_counter_evidence_urls: TreeMap[u256, str]
+    # Binds submitted counter-evidence to the exact commitment + commitment version it was
+    # filed against, so evidence accepted for one commitment can never be replayed into the
+    # adjudication of another, or survive a commitment re-versioning.
+    incident_counter_evidence_commitment: TreeMap[u256, u256]
+    incident_counter_evidence_version: TreeMap[u256, u256]
     incident_readjudication_hash: TreeMap[u256, str]
     incident_finalized_at: TreeMap[u256, u256]
     incident_observation_id: TreeMap[u256, u256]
@@ -343,6 +353,124 @@ class Temper(gl.Contract):
         if counter_available and original_severity > int(SEV_MINOR):
             return json.dumps({"ruling": "REDUCE_SEVERITY", "event_status": "CONFIRMED", "severity": "MINOR", "coverage_trigger": 1, "responsibility": "SHARED", "evidence_quality": "AUTHENTICATED_FAILURE_WITH_COUNTER_EVIDENCE"})
         return json.dumps({"ruling": "UPHOLD", "event_status": "CONFIRMED", "severity": original_name, "coverage_trigger": 1, "responsibility": "OPERATOR", "evidence_quality": "AUTHENTICATED_FAILURE_REPLAYED"})
+
+    # -- Counter-evidence origin binding --
+
+    def _url_origin(self, url: str) -> str:
+        """Lowercased scheme://host for an http(s) URL, or "" when malformed.
+
+        Credentials and port are stripped so that a declared host still matches when the
+        operator cites the same host over an alternate port or with userinfo present.
+        """
+        u = url.strip().lower()
+        if not u.startswith("http://") and not u.startswith("https://"):
+            return ""
+        scheme_end = u.find("://") + 3
+        rest = u[scheme_end:]
+        cut = len(rest)
+        for ch in ("/", "?", "#"):
+            i = rest.find(ch)
+            if i != -1 and i < cut:
+                cut = i
+        host = rest[:cut]
+        if "@" in host:
+            host = host.split("@")[-1]
+        if ":" in host:
+            host = host.split(":")[0]
+        if host == "":
+            return ""
+        return u[:scheme_end] + host
+
+    def _declared_hosts(self, cid: u256) -> list:
+        """Hosts the commitment itself declared (immutable after creation)."""
+        hosts = []
+        for raw in (
+            self.commitment_target_url.get(cid) or "",
+            self.commitment_backup_url.get(cid) or "",
+        ):
+            origin = self._url_origin(raw)
+            if origin != "":
+                host = origin.split("://")[-1]
+                if host not in hosts:
+                    hosts.append(host)
+        return hosts
+
+    def _validate_counter_evidence(self, cid: u256, urls: str) -> str:
+        """Reject counter-evidence that is malformed or not served by a declared host."""
+        raw = urls.strip()
+        if raw == "":
+            raise gl.vm.UserError("EMPTY_COUNTER_EVIDENCE")
+        allowed = self._declared_hosts(cid)
+        if len(allowed) == 0:
+            raise gl.vm.UserError("NO_DECLARED_ORIGIN")
+        parts = []
+        for piece in raw.split("|"):
+            item = piece.strip()
+            if item == "":
+                continue
+            origin = self._url_origin(item)
+            if origin == "":
+                raise gl.vm.UserError("INVALID_EVIDENCE_URL")
+            if origin.split("://")[-1] not in allowed:
+                raise gl.vm.UserError("EVIDENCE_ORIGIN_NOT_BOUND")
+            if item not in parts:
+                parts.append(item)
+        if len(parts) == 0:
+            raise gl.vm.UserError("EMPTY_COUNTER_EVIDENCE")
+        if len(parts) > MAX_COUNTER_EVIDENCE_URLS:
+            raise gl.vm.UserError("TOO_MANY_EVIDENCE_URLS")
+        return "|".join(parts)
+
+    def _bind_counter_evidence(self, incident_id: u256, cid: u256) -> None:
+        self.incident_counter_evidence_commitment[incident_id] = cid
+        self.incident_counter_evidence_version[incident_id] = (
+            self.commitment_version.get(cid) or u256(1)
+        )
+
+    def _require_counter_evidence_binding(self, incident_id: u256, cid: u256) -> None:
+        """Counter-evidence must still belong to this commitment at its current version."""
+        bound_cid = self.incident_counter_evidence_commitment.get(incident_id)
+        if bound_cid is None:
+            return
+        if int(bound_cid) != int(cid):
+            raise gl.vm.UserError("EVIDENCE_COMMITMENT_MISMATCH")
+        bound_version = int(self.incident_counter_evidence_version.get(incident_id) or u256(0))
+        current_version = int(self.commitment_version.get(cid) or u256(1))
+        if bound_version != current_version:
+            raise gl.vm.UserError("EVIDENCE_VERSION_STALE")
+
+    # -- Outstanding policy accounting --
+
+    def _expire_policy(self, pid: u256, cid: u256, was_active: bool) -> None:
+        """Mark a past-term policy expired and release the capital it reserved."""
+        self.policy_status[pid] = POL_EXPIRED
+        limit = int(self.policy_limit.get(pid) or u256(0))
+        reserved = int(self.vault_reserved_capital.get(cid) or u256(0))
+        self.vault_reserved_capital[cid] = u256(max(0, reserved - limit))
+        if was_active:
+            apc = int(self.commitment_active_policy_count.get(cid) or u256(0))
+            if apc > 0:
+                self.commitment_active_policy_count[cid] = u256(apc - 1)
+
+    def _outstanding_policy_count(self, cid: u256, now: int) -> int:
+        """Policies the operator still owes coverage on.
+
+        Counts ACTIVE *and* PENDING_WAIT policies still inside their term. Paid policies
+        serving a waiting period are deliberately included: the premium is already collected,
+        so the bond must remain locked even though the policy is not yet claimable. Policies
+        past their term are expired in place and their reservation released.
+        """
+        outstanding = 0
+        for pid_int in self._get_json_array(self.commitment_policy_ids, cid):
+            pid = u256(pid_int)
+            status = int(self.policy_status.get(pid) or u256(0))
+            if status != int(POL_ACTIVE) and status != int(POL_PENDING_WAIT):
+                continue
+            if now > int(self.policy_end.get(pid) or u256(0)):
+                self._expire_policy(pid, cid, status == int(POL_ACTIVE))
+                continue
+            outstanding += 1
+        return outstanding
 
     def _policy_waiting_complete(self, policy_id: u256, cid: u256, at_time: int) -> bool:
         pol_start = int(self.policy_start.get(policy_id) or u256(0))
@@ -525,6 +653,11 @@ class Temper(gl.Contract):
         if int(status) != int(C_ACTIVE) and int(status) != int(C_WATCH):
             raise gl.vm.UserError("CANNOT_WIND_DOWN")
 
+        # Paid policies -- including those still serving a waiting period -- keep the
+        # commitment open. Premiums are already collected, so coverage cannot be abandoned.
+        if self._outstanding_policy_count(commitment_id, self._now()) > 0:
+            raise gl.vm.UserError("OUTSTANDING_POLICIES")
+
         self.commitment_status[commitment_id] = C_WINDING_DOWN
 
     @gl.public.write
@@ -534,9 +667,11 @@ class Temper(gl.Contract):
         if int(status) != int(C_WINDING_DOWN) and int(status) != int(C_CLOSED):
             raise gl.vm.UserError("NOT_WINDING_DOWN")
 
-        active_policies = int(self.commitment_active_policy_count.get(commitment_id) or u256(0))
-        if active_policies > 0:
-            raise gl.vm.UserError("ACTIVE_POLICIES_EXIST")
+        # Counts PENDING_WAIT alongside ACTIVE: a policy whose premium is paid but whose
+        # waiting period has not elapsed is not reflected in active_policy_count, and must
+        # still block the operator from reclaiming the bond backing it.
+        if self._outstanding_policy_count(commitment_id, self._now()) > 0:
+            raise gl.vm.UserError("OUTSTANDING_POLICIES")
 
         active_inc = int(self.commitment_active_incident.get(commitment_id) or u256(0))
         if active_inc > 0:
@@ -802,6 +937,15 @@ class Temper(gl.Contract):
             raise gl.vm.UserError("NOT_HOLDER")
         if not self._activate_waiting_policy_if_ready(policy_id, self._now()):
             raise gl.vm.UserError("WAITING_PERIOD_ACTIVE")
+
+    @gl.public.write
+    def sweep_expired_policies(self, commitment_id: u256) -> u256:
+        """Expire past-term policies, release their reservations, return what remains owed.
+
+        Permissionless: anyone may clear stale reservations so an operator is never blocked
+        from winding down by policies that have genuinely lapsed.
+        """
+        return u256(self._outstanding_policy_count(commitment_id, self._now()))
 
     @gl.public.write
     def claim_payout(self, policy_id: u256) -> None:
@@ -1093,9 +1237,12 @@ class Temper(gl.Contract):
         if inc_status != int(INC_CHALLENGE_WINDOW) and inc_status != int(INC_PROVISIONAL_VERDICT):
             raise gl.vm.UserError("NOT_CHALLENGEABLE")
 
+        normalized = self._validate_counter_evidence(cid, counter_evidence_urls)
+
         self.incident_challenger[incident_id] = gl.message.sender_address
         self.incident_challenge_time[incident_id] = u256(self._now())
-        self.incident_counter_evidence_urls[incident_id] = counter_evidence_urls
+        self.incident_counter_evidence_urls[incident_id] = normalized
+        self._bind_counter_evidence(incident_id, cid)
         self.incident_status[incident_id] = INC_READJUDICATION_PENDING
 
     @gl.public.write
@@ -1105,11 +1252,14 @@ class Temper(gl.Contract):
             raise gl.vm.UserError("INCIDENT_NOT_FOUND")
         self._require_operator(cid)
 
+        self._require_counter_evidence_binding(incident_id, cid)
+
         existing = self.incident_counter_evidence_urls.get(incident_id) or ""
-        if existing:
-            self.incident_counter_evidence_urls[incident_id] = existing + "|" + urls
-        else:
-            self.incident_counter_evidence_urls[incident_id] = urls
+        combined = (existing + "|" + urls) if existing else urls
+        self.incident_counter_evidence_urls[incident_id] = self._validate_counter_evidence(
+            cid, combined
+        )
+        self._bind_counter_evidence(incident_id, cid)
 
     @gl.public.write
     def request_readjudication(self, incident_id: u256) -> None:
@@ -1120,6 +1270,7 @@ class Temper(gl.Contract):
             raise gl.vm.UserError("NOT_READJUDICATION_PENDING")
 
         cid = self.incident_commitment[incident_id]
+        self._require_counter_evidence_binding(incident_id, cid)
         target_url = self.commitment_target_url.get(cid) or ""
         backup_url = self.commitment_backup_url.get(cid) or ""
         counter_urls_raw = self.incident_counter_evidence_urls.get(incident_id) or ""

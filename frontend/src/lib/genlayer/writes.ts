@@ -187,6 +187,14 @@ export async function claimPayout(options: WriteOptions, policyId: number) {
   return callWrite(options, 'claim_payout', { args: [policyId] });
 }
 
+/**
+ * Expire past-term policies on a commitment and release their reserved capital.
+ * Permissionless — anyone may call it to clear stale reservations.
+ */
+export async function sweepExpiredPolicies(options: WriteOptions, commitmentId: number) {
+  return callWrite(options, 'sweep_expired_policies', { args: [commitmentId] });
+}
+
 // ---------------------------------------------------------------------------
 // Observation (observer runner / anyone)
 // ---------------------------------------------------------------------------
