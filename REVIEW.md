@@ -1,12 +1,27 @@
 # Temper Review Response
 
-## Review Item
+> **Current status — responding to Round 2 feedback.**
+> Both remaining protections are implemented, linted, deployed, and verified on-chain.
+> Jump to **[Review Round 2](#review-round-2)** for the changes, the tests covering
+> **activation** and **expiry**, and the transaction hashes.
+>
+> | Round 2 item | Status |
+> |---|---|
+> | Bind counter-evidence content and origin to the specific commitment | Done — verified on-chain (both accept and reject paths) |
+> | Prevent wind-down / bond withdrawal while paid waiting policies outstanding | Done — verified on-chain |
+> | Tests covering activation and expiry | Done — `scripts/test-review-fixes.mjs`, run live on StudioNet |
+>
+> Contract under review: `0x1f20C1f6132cee9E8Dd13a2114988e504E233066` (StudioNet)
+> Round 1 material is retained below for history.
+
+
+## Round 1 — Review Item
 
 i was asked to address the following:
 
 > Validators confirm endpoint reachability but do not independently enforce the incident status, severity, counter-evidence, and ruling that drive financial outcomes. Make those fields derive from authenticated service evidence, and close the waiting-policy and partial-withdrawal lifecycle gaps.
 
-## Corrections Made
+## Round 1 — Corrections Made
 
 ### 1. Evidence-derived incident outcomes
 
@@ -167,7 +182,7 @@ Key transactions:
 - challenge incident: `0x750a355f49dde34f3452b9f7e57f5c1e1f511d3ece87c48445eb5010de09b69b`
 - request readjudication: `0x074c43c2a91d34906670348c5d058660732ec9e03b8123af6eadb355f95e2d05`
 
-## Submission Summary
+## Round 1 — Summary
 
 Temper now uses GenLayer validators for trustless adjudication of the fields that drive financial outcomes. Endpoint failures, counter-evidence, readjudication rulings, severity, responsibility, and coverage triggers are recomputed by validators from authenticated committed evidence and checked against deterministic derivation rules before state changes are accepted.
 
